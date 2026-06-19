@@ -124,23 +124,18 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 12px 14px; border-bottom: 1px solid #ffd6e0; font-weight: 600; color: #5a3a47; font-size: 14px;
     }
-    .mgmt-btns { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 12px; }
-    .mgmt-btn {
-      background: #fff8fa; border: 1px solid #ffd6e0; border-radius: 6px;
-      font-size: 12px; cursor: pointer; padding: 5px 8px; color: #a06075;
-      white-space: nowrap; transition: all 0.15s;
-    }
-    .mgmt-btn:hover { background: #fff0f4; border-color: var(--primary); color: var(--primary); }
+    .sidebar-mgmt .sidebar-header { gap: 8px; }
 
-    .tree-node { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 6px; font-size: 13px; }
+    .tree-node { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 6px; font-size: 13px; gap: 2px; }
     .tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .tree-actions { display: none; gap: 2px; flex-shrink: 0; margin-left: 4px; }
-    .tree-node:hover .tree-actions { display: inline-flex; }
+    .tree-node .tree-act-btn { opacity: 0; transition: opacity 0.15s; }
+    .tree-node:hover .tree-act-btn { opacity: 1; }
     .tree-act-btn {
       background: none; border: none; font-size: 14px; cursor: pointer;
-      padding: 2px 5px; border-radius: 4px; color: #a06075;
+      padding: 2px 5px; border-radius: 4px; color: #a06075; flex-shrink: 0;
     }
     .tree-act-btn:hover { background: #fff5f8; }
+    .el-dropdown { display: inline-flex; }
     .tree-act-btn.danger { color: #f56c6c; }
 
     /* 卡片主区域 */
@@ -252,6 +247,8 @@
     .ec-type-tag { font-size: 10px; height: 18px; padding: 0 5px; }
     .ec-color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); flex-shrink: 0; }
     .ec-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+    .ec-img { margin: 2px 0; }
+    .ec-thumb { max-width: 100%; max-height: 80px; border-radius: 6px; object-fit: cover; cursor: pointer; border: 1px solid #ffd6e0; }
     .ec-tag-chip {
       font-size: 10px; color: #a06075; background: #fff5f8;
       padding: 1px 5px; border-radius: 8px; white-space: nowrap;
@@ -277,6 +274,9 @@
 
     .entity-card.highlight {
       animation: card-pulse 2.2s ease-in-out;
+    }
+    .entity-card.expanded {
+      background: #fff5fa; border-left-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--shadow);
     }
     .entity-card.quick-add-card {
       border: 2px dashed #ffd6e0; background: #fff8fa; min-height: 60px;
@@ -374,15 +374,15 @@
       .card-area.compact { --tree-v-gap: 8px; --tree-h-gap: 2px; }
       .card-area.comfortable { --tree-v-gap: 18px; --tree-h-gap: 8px; }
       .entity-card { width: 130px; min-height: 98px; padding: 8px; gap: 4px; }
+      .entity-card.expanded { border-left-width: 4px; }
       .ec-icon { font-size: 18px; padding: 4px; }
       .ec-name { font-size: 13px; }
       .ec-actions { gap: 3px; }
       .ec-act { font-size: 11px; padding: 4px 5px; min-width: 26px; min-height: 26px; }
-      .tree-node { padding-right: 2px; font-size: 14px; }
+      .tree-node { padding-right: 2px; font-size: 14px; gap: 1px; }
       .tree-act-btn { font-size: 16px; padding: 4px 7px; }
+      .tree-node .tree-act-btn { opacity: 1; }
       .sync-status { display: none; }
-      .mobile-mgmt { display: flex; flex-wrap: wrap; gap: 6px; }
-      .mobile-mgmt .mgmt-btn { font-size: 13px; padding: 6px 10px; }
     }
   </style>
 </head>
