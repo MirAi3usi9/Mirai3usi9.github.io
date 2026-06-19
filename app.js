@@ -26,6 +26,8 @@
   }
 
   // ==================== 配置 ====================
+  const DATA_VERSION = 1; // ★ 每次存储结构变更（新增字段/表）时 +1，保证旧缓存自动重置
+
   const PRESETS = {
     roomType: ['卧室', '客厅', '厨房', '卫生间', '阳台', '书房', '储物间'],
     containerType: ['衣柜', '橱柜', '抽屉柜', '书架', '鞋柜', '杂物柜'],
@@ -227,6 +229,8 @@
   }
 
   // ==================== STORE ====================
+  // ★ 新增字段/表时：1) 在 store 中加入字段  2) 在 fetchLocalStorage/saveToLocalStorage/markDirty 中读写
+  //   3) 更新 DATA_VERSION  4) clearLocalData 已按前缀自动匹配，无需修改
   const store = reactive({
     loggedIn: false,
     githubToken: '',
@@ -236,6 +240,7 @@
     tags: [],
     roomTypes: [],
     containerTypes: [],
+    // ★ 家族数据独立存储（见 "家人们 | 独立存储"），不在此处同步
     familyMembers: [],
     loading: false,
     lastError: '',
@@ -383,11 +388,23 @@
 
   function resetData() { store.houses = []; store.categories = []; store.tags = []; store.roomTypes = []; store.containerTypes = []; initDefaults(); }
 
+  // ★ 新增存储字段/表时: 1) 更新 DATA_VERSION  2) 在 resetData / saveToLocalStorage / markDirty 中加入新字段
   function fetchLocalStorage() {
-    const data = localStorage.getItem('xiaohua_xiaofeng_data');
+    var ver = localStorage.getItem('xiaohua_xiaofeng_version');
+    if (ver !== String(DATA_VERSION)) {
+      // 版本不匹配 → 清理旧缓存，使用默认数据
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('xiaohua_xiaofeng_') === 0) localStorage.removeItem(k);
+      }
+      localStorage.setItem('xiaohua_xiaofeng_version', String(DATA_VERSION));
+      resetData();
+      return;
+    }
+    var data = localStorage.getItem('xiaohua_xiaofeng_data');
     if (data) {
       try {
-        const parsed = JSON.parse(data);
+        var parsed = JSON.parse(data);
         store.houses = parsed.houses || [];
         store.categories = parsed.categories || [];
         store.tags = parsed.tags || [];
@@ -398,6 +415,7 @@
     initDefaults();
   }
   function saveToLocalStorage() {
+    localStorage.setItem('xiaohua_xiaofeng_version', String(DATA_VERSION));
     localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) }));
     store.dirty = false;
     store.lastSync = Date.now();
@@ -407,17 +425,19 @@
   function markDirty() {
     store.dirty = true;
     store.syncError = '';
+    localStorage.setItem('xiaohua_xiaofeng_version', String(DATA_VERSION));
     localStorage.setItem('xiaohua_xiaofeng_dirty', 'true');
     localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) }));
   }
 
-  // ==================== 家人们 | 独立存储 ====================
+  // ==================== 家人们 | 独立存储（新增表时同步修改 clearLocalData 注释以外的清理逻辑会自动按前缀匹配） ====================
   function ghFamilyUrl() { return 'https://api.github.com/repos/' + store.githubRepo + '/contents/data/family.json'; }
   function fetchFamilyLocalStorage() {
     var d = localStorage.getItem('xiaohua_xiaofeng_family_data');
     try { store.familyMembers = d ? JSON.parse(d) : []; } catch(e) { store.familyMembers = []; }
   }
   function saveFamilyToLocalStorage() {
+    localStorage.setItem('xiaohua_xiaofeng_version', String(DATA_VERSION));
     localStorage.setItem('xiaohua_xiaofeng_family_data', JSON.stringify(toRaw(store.familyMembers)));
     store.familyDirty = false;
     store.lastSync = Date.now();
@@ -425,6 +445,7 @@
   }
   function markFamilyDirty() {
     store.familyDirty = true;
+    localStorage.setItem('xiaohua_xiaofeng_version', String(DATA_VERSION));
     localStorage.setItem('xiaohua_xiaofeng_family_dirty', 'true');
     localStorage.setItem('xiaohua_xiaofeng_family_data', JSON.stringify(toRaw(store.familyMembers)));
   }
@@ -499,14 +520,15 @@
         } catch (e) { error.value = '小秘密不对哦~'; logging.value = false; }
       }
       function clearLocalData() {
-        localStorage.removeItem('xiaohua_xiaofeng_data');
-        localStorage.removeItem('xiaohua_xiaofeng_dirty');
-        localStorage.removeItem('xiaohua_xiaofeng_family_data');
-        localStorage.removeItem('xiaohua_xiaofeng_family_dirty');
-        localStorage.removeItem('xiaohua_xiaofeng_use_github');
-        localStorage.removeItem('xiaohua_xiaofeng_logged_in');
+        // ★ 遍历清除所有本应用 localStorage 缓存（前缀匹配），新增存储 key 时无需修改此处
+        var keysToRemove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (key && key.indexOf('xiaohua_xiaofeng_') === 0) keysToRemove.push(key);
+        }
+        keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
         ElementPlus.ElMessage.success('缓存已清除，即将刷新页面');
-        setTimeout(() => location.reload(), 1000);
+        setTimeout(function() { location.reload(); }, 1000);
       }
       return { password, logging, error, login, clearLocalData };
     },
