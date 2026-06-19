@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { createApp, ref, reactive, computed, toRaw, nextTick } = Vue;
+  const { createApp, ref, reactive, computed, toRaw, nextTick, onMounted, onUnmounted } = Vue;
 
   // ==================== XOR 工具 ====================
   const CRED_TOKEN = 'DxAWNxxXPz4eGTcgIRk0UCgKWj4zDxQVDxpTWAtWPS08XUovEj1RCw==';
@@ -398,6 +398,7 @@
   function saveToLocalStorage() {
     localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) }));
     store.dirty = false;
+    store.lastSync = Date.now();
     localStorage.removeItem('xiaohua_xiaofeng_dirty');
     ElementPlus.ElMessage.success('已保存到本地');
   }
@@ -419,7 +420,10 @@
           <el-input v-model="password" type="password" placeholder="小秘密" show-password @keyup.enter="login" size="large" />
           <el-button type="primary" style="width:100%;margin-top:16px;font-size:16px;font-weight:600;" @click="login" :loading="logging" size="large">🚪 开门！</el-button>
           <p v-if="error" style="color:#f56c6c;margin-top:12px;font-size:13px;">{{ error }}</p>
-        </div>
+          <p style="margin-top:20px;font-size:12px;color:#c48a9c;border-top:1px solid #ffd6e0;padding-top:14px;">
+            <a href="#" @click.prevent="clearLocalData" style="color:#f56c6c;text-decoration:underline;">⚠️ 清除本地缓存</a>
+            （页面加载异常时使用）
+          </p>
       </div>
     `,
     setup() {
@@ -440,7 +444,15 @@
           store.loggedIn = true;
         } catch (e) { error.value = '小秘密不对哦~'; logging.value = false; }
       }
-      return { password, logging, error, login };
+      function clearLocalData() {
+        localStorage.removeItem('xiaohua_xiaofeng_data');
+        localStorage.removeItem('xiaohua_xiaofeng_dirty');
+        localStorage.removeItem('xiaohua_xiaofeng_use_github');
+        localStorage.removeItem('xiaohua_xiaofeng_logged_in');
+        ElementPlus.ElMessage.success('缓存已清除，即将刷新页面');
+        setTimeout(() => location.reload(), 1000);
+      }
+      return { password, logging, error, login, clearLocalData };
     },
   };
 
@@ -557,7 +569,7 @@
   const CardNode = {
     name: 'CardNode',
     props: { entity: Object, type: String, expandedIds: Object, isRoot: { type: Boolean, default: false }, isMobileView: { type: Boolean, default: false } },
-    emits: ['toggle', 'expand-all', 'add-room', 'add-container', 'add-box', 'add-item', 'edit', 'delete', 'copy'],
+    emits: ['toggle', 'expand-all', 'toggle-expand-all', 'add-room', 'add-container', 'add-box', 'add-item', 'edit', 'delete', 'copy'],
     template: `
       <li class="card-tree-node" :class="{ 'card-tree-root': isRoot }">
         <div class="entity-card" :class="[type, { expanded: isExpanded }]" :id="'card-' + entity.id" v-long-press="() => openMoveDialog(entity, type)" @click.stop="onCardClick">
@@ -596,6 +608,7 @@
           <card-node v-for="child in childNodes" :key="child.entity.id" :entity="child.entity" :type="child.type" :expanded-ids="expandedIds" :is-root="false" :is-mobile-view="isMobileView"
             @toggle="$emit('toggle', $event)"
             @expand-all="(e,t) => $emit('expand-all', e, t)"
+            @toggle-expand-all="(e,t) => $emit('toggle-expand-all', e, t)"
             @add-room="$emit('add-room', $event)"
             @add-container="$emit('add-container', $event)"
             @add-box="$emit('add-box', $event)"
@@ -631,7 +644,7 @@
       function previewImage(src) { window.open(src, '_blank'); }
       function onToggle() { emit('toggle', props.entity.id); }
       function onCardClick() {
-        if (props.type === 'house') emit('expand-all', props.entity, props.type);
+        if (props.type === 'house') emit('toggle-expand-all', props.entity, props.type);
         else if (props.type !== 'item') onToggle();
       }
       function onAction(cmd) {
@@ -679,7 +692,7 @@
               <span class="sync-status" :title="syncStatusText">{{ syncStatusText }}</span>
               <button class="s-header-btn" @click="manualSync" title="保存同步">💾</button>
               <button class="s-header-btn" @click="refreshFromGitHub" title="从 GitHub 加载最新数据">📥</button>
-              <button class="s-header-btn" v-if="isLocalMode()" :class="{active: store.useGitHub}" @click="toggleUseGitHub" :title="store.useGitHub ? '已开启 GitHub 同步' : '已关闭 GitHub 同步'">☁️</button>
+              <button class="s-header-btn" :class="{active: isOnlineSyncEnabled()}" @click="toggleUseGitHub" :title="isOnlineSyncEnabled() ? '已开启 GitHub 同步' : '已关闭 GitHub 同步'">☁️</button>
               <button class="s-header-btn danger" @click="showClearDialog" title="清空 GitHub 数据">🗑️</button>
               <button class="s-header-btn" :class="{active: searchVisible}" @click="toggleSearch" title="搜索">🔍</button>
               <button class="s-header-btn" @click="showMobileTree = true" v-if="isMobileView" title="目录树">☰</button>
@@ -769,6 +782,7 @@
                     <card-node v-for="house in store.houses" :key="house.id" :entity="house" type="house" :expanded-ids="expandedIds" :is-root="true" :is-mobile-view="isMobileView"
                       @toggle="toggleExpand"
                       @expand-all="expandAll"
+                      @toggle-expand-all="toggleExpandAll"
                       @add-room="showAddRoomForHouse"
                       @add-container="showAddContainer"
                       @add-box="showAddBox"
@@ -965,6 +979,47 @@
       window.addEventListener('beforeunload', (e) => {
         if (store.dirty) { e.preventDefault(); e.returnValue = '还有未同步的更改，确定要离开吗？'; }
       });
+
+      onMounted(() => {
+        const el = cardAreaRef.value;
+        if (!el) return;
+        el.addEventListener('wheel', onWheel, { passive: false });
+        el.addEventListener('touchstart', onTouchStart, { passive: true });
+        el.addEventListener('touchmove', onTouchMove, { passive: false });
+        el.addEventListener('touchend', onTouchEnd, { passive: true });
+      });
+      onUnmounted(() => {
+        const el = cardAreaRef.value;
+        if (!el) return;
+        el.removeEventListener('wheel', onWheel);
+        el.removeEventListener('touchstart', onTouchStart);
+        el.removeEventListener('touchmove', onTouchMove);
+        el.removeEventListener('touchend', onTouchEnd);
+      });
+      let lastPinchDist = 0;
+      function onWheel(e) {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        if (e.deltaY < 0) zoom.value = Math.min(zoom.value + 0.1, 2);
+        else zoom.value = Math.max(zoom.value - 0.1, 0.5);
+      }
+      function onTouchStart(e) {
+        if (e.touches.length === 2) {
+          lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        }
+      }
+      function onTouchMove(e) {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+          const diff = dist - lastPinchDist;
+          if (Math.abs(diff) > 10) {
+            zoom.value = Math.max(0.5, Math.min(2, zoom.value + diff * 0.01));
+            lastPinchDist = dist;
+          }
+        }
+      }
+      function onTouchEnd(e) { if (e.touches.length < 2) lastPinchDist = 0; }
 
       function refreshFromGitHub() {
         if (!isOnlineSyncEnabled()) { ElementPlus.ElMessage.warning('GitHub 同步未开启'); return; }
@@ -1170,10 +1225,34 @@
         expandedIds.has(id) ? expandedIds.delete(id) : expandedIds.add(id);
       }
       function expandAll(entity, type) {
+        addAllDescendants(entity, type);
+      }
+      function toggleExpandAll(entity, type) {
+        if (allCollapsed(entity, type)) {
+          addAllDescendants(entity, type);
+        } else {
+          removeAllDescendants(entity, type);
+        }
+      }
+      function addAllDescendants(entity, type) {
         expandedIds.add(entity.id);
         (CHILD_KEYS[type] || []).forEach(key => {
-          (entity[key] || []).forEach(child => expandAll(child, keyToType(key)));
+          (entity[key] || []).forEach(child => addAllDescendants(child, keyToType(key)));
         });
+      }
+      function removeAllDescendants(entity, type) {
+        (CHILD_KEYS[type] || []).forEach(key => {
+          (entity[key] || []).forEach(child => { expandedIds.delete(child.id); removeAllDescendants(child, keyToType(key)); });
+        });
+      }
+      function allCollapsed(entity, type) {
+        for (const key of (CHILD_KEYS[type] || [])) {
+          for (const child of (entity[key] || [])) {
+            if (expandedIds.has(child.id)) return false;
+            if (!allCollapsed(child, keyToType(key))) return false;
+          }
+        }
+        return true;
       }
 
       function toggleSearch() {
@@ -1469,7 +1548,7 @@
         syncStatusText,
         treeData, allExpandedKeys,
         hd, rd, cd, bd, id2,
-        enterFeature, showManageDialog, toggleExpand, expandAll,
+        enterFeature, showManageDialog, toggleExpand, expandAll, toggleExpandAll,
         toggleSearch, closeSearch, doSearch, navToSearchResult,
         zoomIn, zoomOut, zoomReset, toggleSpacing,
         allowTreeDrag, allowTreeDrop, handleTreeDrop,
