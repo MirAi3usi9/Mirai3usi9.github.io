@@ -55,6 +55,17 @@
     { id: 'tag-gift', name: '礼物' },
     { id: 'tag-fragile', name: '易碎' },
   ];
+  const DEFAULT_ROOM_TYPES = [
+    { id: 'rt-bedroom', name: '卧室' }, { id: 'rt-living', name: '客厅' },
+    { id: 'rt-kitchen', name: '厨房' }, { id: 'rt-bathroom', name: '卫生间' },
+    { id: 'rt-balcony', name: '阳台' }, { id: 'rt-study', name: '书房' },
+    { id: 'rt-storage', name: '储物间' },
+  ];
+  const DEFAULT_CONTAINER_TYPES = [
+    { id: 'ct-wardrobe', name: '衣柜' }, { id: 'ct-cabinet', name: '橱柜' },
+    { id: 'ct-drawer', name: '抽屉柜' }, { id: 'ct-bookshelf', name: '书架' },
+    { id: 'ct-shoe', name: '鞋柜' }, { id: 'ct-utility', name: '杂物柜' },
+  ];
 
   // ==================== 通用工具 ====================
   function genId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 8); }
@@ -122,6 +133,31 @@
     if (childType === 'box') return ['room', 'container', 'box'].includes(parentType);
     if (childType === 'item') return ['room', 'container', 'box'].includes(parentType);
     return false;
+  }
+  function moveEntityUp(entity, type) {
+    const info = findEntityParent(entity, type);
+    if (!info || info.index <= 0) return;
+    const arr = info.array;
+    if (info.index > 0) { [arr[info.index - 1], arr[info.index]] = [arr[info.index], arr[info.index - 1]]; }
+  }
+  function moveEntityDown(entity, type) {
+    const info = findEntityParent(entity, type);
+    if (!info || info.index >= info.array.length - 1) return;
+    const arr = info.array;
+    [arr[info.index + 1], arr[info.index]] = [arr[info.index], arr[info.index + 1]];
+  }
+  function cloneEntity(entity, type) {
+    const clone = JSON.parse(JSON.stringify(entity));
+    function renewIds(obj, t) { obj.id = genId(); (CHILD_KEYS[t] || []).forEach(k => (obj[k] || []).forEach(c => renewIds(c, keyToType(k)))); }
+    renewIds(clone, type);
+    return clone;
+  }
+  function copyEntity(entity, type) {
+    const info = findEntityParent(entity, type);
+    if (!info) return null;
+    const clone = cloneEntity(entity, type);
+    info.array.splice(info.index + 1, 0, clone);
+    return clone;
   }
 
   function getTypeLabel(entity, type) {
@@ -198,6 +234,8 @@
     houses: [],
     categories: [],
     tags: [],
+    roomTypes: [],
+    containerTypes: [],
     loading: false,
     lastError: '',
     dirty: false,
@@ -226,19 +264,13 @@
     return Array.from(set).map(name => ({ id: genId(), name }));
   }
 
-  function initCategoriesAndTags() {
-    if (!store.categories || store.categories.length === 0) {
-      store.categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
-    }
-    if (!store.tags || store.tags.length === 0) {
-      store.tags = DEFAULT_TAGS.map(t => ({ ...t }));
-    }
-    collectExistingCategories().forEach(c => {
-      if (!store.categories.find(x => x.name === c.name)) store.categories.push(c);
-    });
-    collectExistingTags().forEach(t => {
-      if (!store.tags.find(x => x.name === t.name)) store.tags.push(t);
-    });
+  function initDefaults() {
+    if (!store.categories || store.categories.length === 0) store.categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+    if (!store.tags || store.tags.length === 0) store.tags = DEFAULT_TAGS.map(t => ({ ...t }));
+    if (!store.roomTypes || store.roomTypes.length === 0) store.roomTypes = DEFAULT_ROOM_TYPES.map(r => ({ ...r }));
+    if (!store.containerTypes || store.containerTypes.length === 0) store.containerTypes = DEFAULT_CONTAINER_TYPES.map(c => ({ ...c }));
+    collectExistingCategories().forEach(c => { if (!store.categories.find(x => x.name === c.name)) store.categories.push(c); });
+    collectExistingTags().forEach(t => { if (!store.tags.find(x => x.name === t.name)) store.tags.push(t); });
   }
 
   // ==================== GITHUB API ====================
@@ -281,7 +313,9 @@
       store.houses = parsed.houses || [];
       store.categories = parsed.categories || [];
       store.tags = parsed.tags || [];
-      initCategoriesAndTags();
+      store.roomTypes = parsed.roomTypes || [];
+      store.containerTypes = parsed.containerTypes || [];
+      initDefaults();
       store.lastSync = Date.now();
       store._lastSha = data.sha;
       localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
@@ -298,7 +332,7 @@
     if (!isOnlineSyncEnabled()) { saveToLocalStorage(); store.dirty = false; return; }
     store.loading = true; store.lastError = ''; store.syncError = '';
     try {
-      const jsonStr = JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) });
+      const jsonStr = JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) });
       const innerBase64 = xorEncode(jsonStr, 'hxf');
       const fileContent = btoa(innerBase64);
       const getResp = await fetch(ghUrl(), { headers: ghHeaders() });
@@ -345,7 +379,7 @@
     } finally { store.loading = false; }
   }
 
-  function resetData() { store.houses = []; store.categories = []; store.tags = []; initCategoriesAndTags(); }
+  function resetData() { store.houses = []; store.categories = []; store.tags = []; store.roomTypes = []; store.containerTypes = []; initDefaults(); }
 
   function fetchLocalStorage() {
     const data = localStorage.getItem('xiaohua_xiaofeng_data');
@@ -355,12 +389,14 @@
         store.houses = parsed.houses || [];
         store.categories = parsed.categories || [];
         store.tags = parsed.tags || [];
+        store.roomTypes = parsed.roomTypes || [];
+        store.containerTypes = parsed.containerTypes || [];
       } catch (e) { resetData(); }
     } else { resetData(); }
-    initCategoriesAndTags();
+    initDefaults();
   }
   function saveToLocalStorage() {
-    localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
+    localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) }));
     store.dirty = false;
     localStorage.removeItem('xiaohua_xiaofeng_dirty');
     ElementPlus.ElMessage.success('已保存到本地');
@@ -369,7 +405,7 @@
     store.dirty = true;
     store.syncError = '';
     localStorage.setItem('xiaohua_xiaofeng_dirty', 'true');
-    localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
+    localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) }));
   }
 
   // ==================== 登录 ====================
@@ -521,7 +557,7 @@
   const CardNode = {
     name: 'CardNode',
     props: { entity: Object, type: String, expandedIds: Object, isRoot: { type: Boolean, default: false }, isMobileView: { type: Boolean, default: false } },
-    emits: ['toggle', 'add-room', 'add-container', 'add-box', 'add-item', 'edit', 'delete'],
+    emits: ['toggle', 'add-room', 'add-container', 'add-box', 'add-item', 'edit', 'delete', 'copy'],
     template: `
       <li class="card-tree-node" :class="{ 'card-tree-root': isRoot }">
         <div class="entity-card" :class="type" :id="'card-' + entity.id" v-long-press="() => openMoveDialog(entity, type)">
@@ -547,6 +583,7 @@
               <button v-if="type==='room'" class="ec-act" @click.stop="$emit('add-container', entity)" title="添加柜子">+🗄️</button>
               <button v-if="type==='room' || type==='container' || type==='box'" class="ec-act" @click.stop="$emit('add-box', entity)" title="添加盒子">+📦</button>
               <button v-if="type==='room' || type==='container' || type==='box'" class="ec-act" @click.stop="$emit('add-item', entity)" title="添加物品">+🏷️</button>
+              <button class="ec-act" @click.stop="$emit('copy', entity, type)" title="复制">📋</button>
               <button class="ec-act" @click.stop="$emit('edit', entity, type)" title="编辑">✏️</button>
               <button class="ec-act danger" @click.stop="$emit('delete', entity, type)" title="删除">✖️</button>
             </template>
@@ -560,6 +597,7 @@
                     <el-dropdown-item v-if="type==='room'" command="add-container">+ 添加柜子</el-dropdown-item>
                     <el-dropdown-item v-if="type==='room' || type==='container' || type==='box'" command="add-box">+ 添加盒子</el-dropdown-item>
                     <el-dropdown-item v-if="type==='room' || type==='container' || type==='box'" command="add-item">+ 添加物品</el-dropdown-item>
+                    <el-dropdown-item command="copy">📋 复制</el-dropdown-item>
                     <el-dropdown-item command="edit">✏️ 编辑</el-dropdown-item>
                     <el-dropdown-item command="delete" divided>✖️ 删除</el-dropdown-item>
                   </el-dropdown-menu>
@@ -579,7 +617,7 @@
             </div>
           </div>
         </div>
-        <ul class="tree-children" v-if="type !== 'item' && isExpanded && childNodes.length">
+        <ul class="tree-children" v-if="type !== 'item' && isExpanded" :class="{ empty: !childNodes.length }">
           <card-node v-for="child in childNodes" :key="child.entity.id" :entity="child.entity" :type="child.type" :expanded-ids="expandedIds" :is-root="false" :is-mobile-view="isMobileView"
             @toggle="$emit('toggle', $event)"
             @add-room="$emit('add-room', $event)"
@@ -587,7 +625,18 @@
             @add-box="$emit('add-box', $event)"
             @add-item="$emit('add-item', $event)"
             @edit="(e,t) => $emit('edit', e, t)"
-            @delete="(e,t) => $emit('delete', e, t)" />
+            @delete="(e,t) => $emit('delete', e, t)"
+            @copy="(e,t) => $emit('copy', e, t)" />
+          <li class="card-tree-node">
+            <div class="entity-card quick-add-card">
+              <div class="quick-add-content">
+                <button v-if="type==='house'" class="ec-act" @click.stop="$emit('add-room', entity)" title="添加房间">+🚪</button>
+                <button v-if="type==='room'" class="ec-act" @click.stop="$emit('add-container', entity)" title="添加柜子">+🗄️</button>
+                <button v-if="type==='room'||type==='container'||type==='box'" class="ec-act" @click.stop="$emit('add-box', entity)" title="添加盒子">+📦</button>
+                <button v-if="type==='room'||type==='container'||type==='box'" class="ec-act" @click.stop="$emit('add-item', entity)" title="添加物品">+🏷️</button>
+              </div>
+            </div>
+          </li>
         </ul>
       </li>
     `,
@@ -609,6 +658,7 @@
         else if (cmd === 'add-container') emit('add-container', props.entity);
         else if (cmd === 'add-box') emit('add-box', props.entity);
         else if (cmd === 'add-item') emit('add-item', props.entity);
+        else if (cmd === 'copy') emit('copy', props.entity, props.type);
         else if (cmd === 'edit') emit('edit', props.entity, props.type);
         else if (cmd === 'delete') emit('delete', props.entity, props.type);
       }
@@ -649,8 +699,6 @@
               <button class="s-header-btn" @click="manualSync" title="立即保存同步">🔄</button>
               <button class="s-header-btn" v-if="isLocalMode()" :class="{active: store.useGitHub}" @click="toggleUseGitHub" :title="store.useGitHub ? '已开启 GitHub 同步' : '已关闭 GitHub 同步'">☁️</button>
               <button class="s-header-btn danger" @click="showClearDialog" title="清空 GitHub 数据">🗑️</button>
-              <button class="s-header-btn s-header-btn-text" @click="showManageDialog('category')" title="类别管理">🏷️ <span>类别</span></button>
-              <button class="s-header-btn s-header-btn-text" @click="showManageDialog('tag')" title="标签管理">🔖 <span>标签</span></button>
               <button class="s-header-btn" :class="{active: searchVisible}" @click="toggleSearch" title="搜索">🔍</button>
               <button class="s-header-btn" @click="showMobileTree = true" v-if="isMobileView" title="目录树">☰</button>
               <button class="s-header-btn" :class="{active: !sidebarCollapsed}" @click="sidebarCollapsed = !sidebarCollapsed" v-else title="目录树">☰</button>
@@ -665,22 +713,36 @@
 
           <div class="s-body">
             <div v-if="!isMobileView && !sidebarCollapsed" class="sidebar">
-              <div class="sidebar-header"><span>收纳结构</span><el-button size="small" type="primary" @click="showAddHouse">+小窝</el-button></div>
-              <el-tree ref="desktopTreeRef" :data="treeData" node-key="id" :props="{ children: 'children', label: 'label' }" :default-expanded-keys="allExpandedKeys" @node-click="onTreeNodeClick" draggable :allow-drag="allowTreeDrag" :allow-drop="allowTreeDrop" @node-drop="handleTreeDrop" v-loading="store.loading" highlight-current>
-                <template #default="{ data }">
-                  <span class="tree-node" v-long-press="() => openMoveDialog(data.entity, data.type)">
-                    <span class="tree-label">{{ data.label }}</span>
-                    <span class="tree-actions">
-                      <button v-if="data.type==='house'" class="tree-act-btn" @click.stop="showAddRoom(data)" title="添加房间">+🚪</button>
-                      <button v-if="data.type==='room'" class="tree-act-btn" @click.stop="onTreeAddContainer(data)" title="添加柜子">+🗄️</button>
-                      <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddBox(data)" title="添加盒子">+📦</button>
-                      <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddItem(data)" title="添加物品">+🏷️</button>
-                      <button class="tree-act-btn" @click.stop="editFromTree(data)" title="编辑">✏️</button>
-                      <button class="tree-act-btn danger" @click.stop="deleteFromTree(data)" title="删除">✖️</button>
+              <div class="sidebar-section sidebar-mgmt">
+                <div class="sidebar-header">管理工具</div>
+                <div class="mgmt-btns">
+                  <button class="mgmt-btn" @click="showManageDialog('category')" title="物品类别">🏷️ 物品</button>
+                  <button class="mgmt-btn" @click="showManageDialog('tag')" title="标签">🔖 标签</button>
+                  <button class="mgmt-btn" @click="showManageDialog('roomType')" title="房间类型">🚪 房间</button>
+                  <button class="mgmt-btn" @click="showManageDialog('containerType')" title="柜子类型">🗄️ 柜子</button>
+                </div>
+              </div>
+              <div class="sidebar-section sidebar-tree-area">
+                <div class="sidebar-header"><span>收纳结构</span><el-button size="small" type="primary" @click="showAddHouse">+小窝</el-button></div>
+                <el-tree ref="desktopTreeRef" :data="treeData" node-key="id" :props="{ children: 'children', label: 'label' }" :default-expanded-keys="allExpandedKeys" @node-click="onTreeNodeClick" draggable :allow-drag="allowTreeDrag" :allow-drop="allowTreeDrop" @node-drop="handleTreeDrop" v-loading="store.loading" highlight-current>
+                  <template #default="{ data }">
+                    <span class="tree-node" v-long-press="() => openMoveDialog(data.entity, data.type)">
+                      <span class="tree-label">{{ data.label }}</span>
+                      <span class="tree-actions">
+                        <button class="tree-act-btn" @click.stop="treeMoveUp(data)" title="上移">↑</button>
+                        <button class="tree-act-btn" @click.stop="treeMoveDown(data)" title="下移">↓</button>
+                        <button class="tree-act-btn" @click.stop="treeCopy(data)" title="复制">📋</button>
+                        <button v-if="data.type==='house'" class="tree-act-btn" @click.stop="showAddRoom(data)" title="添加房间">+🚪</button>
+                        <button v-if="data.type==='room'" class="tree-act-btn" @click.stop="onTreeAddContainer(data)" title="添加柜子">+🗄️</button>
+                        <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddBox(data)" title="添加盒子">+📦</button>
+                        <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddItem(data)" title="添加物品">+🏷️</button>
+                        <button class="tree-act-btn" @click.stop="editFromTree(data)" title="编辑">✏️</button>
+                        <button class="tree-act-btn danger" @click.stop="deleteFromTree(data)" title="删除">✖️</button>
+                      </span>
                     </span>
-                  </span>
-                </template>
-              </el-tree>
+                  </template>
+                </el-tree>
+              </div>
             </div>
 
             <div class="card-area" :class="spacingClass" ref="cardAreaRef" :style="{ '--zoom': zoom }">
@@ -717,20 +779,30 @@
                       @add-box="showAddBox"
                       @add-item="showAddItem"
                       @edit="editEntity"
-                      @delete="deleteEntity" />
+                      @delete="deleteEntity"
+                      @copy="copyFromCard" />
                   </ul>
                 </div>
               </div>
             </div>
           </div>
 
-          <el-drawer v-model="showMobileTree" title="收纳结构" size="75%" v-if="isMobileView">
+          <el-drawer v-model="showMobileTree" title="管理工具" size="75%" v-if="isMobileView">
+            <div class="mobile-mgmt" style="margin-bottom:12px;">
+              <button class="mgmt-btn" @click="showManageDialog('category'); showMobileTree=false;">🏷️ 物品</button>
+              <button class="mgmt-btn" @click="showManageDialog('tag'); showMobileTree=false;">🔖 标签</button>
+              <button class="mgmt-btn" @click="showManageDialog('roomType'); showMobileTree=false;">🚪 房间</button>
+              <button class="mgmt-btn" @click="showManageDialog('containerType'); showMobileTree=false;">🗄️ 柜子</button>
+            </div>
             <div style="margin-bottom:12px;"><el-button size="small" type="primary" @click="showAddHouse(); showMobileTree=false;">+小窝</el-button></div>
             <el-tree ref="mobileTreeRef" :data="treeData" node-key="id" :props="{ children: 'children', label: 'label' }" :default-expanded-keys="allExpandedKeys" @node-click="onMobileTreeNodeClick" draggable :allow-drag="allowTreeDrag" :allow-drop="allowTreeDrop" @node-drop="handleTreeDrop">
               <template #default="{ data }">
                 <span class="tree-node" v-long-press="() => openMoveDialog(data.entity, data.type)">
                   <span class="tree-label">{{ data.label }}</span>
                   <span class="tree-actions">
+                    <button class="tree-act-btn" @click.stop="treeMoveUp(data)" title="上移">↑</button>
+                    <button class="tree-act-btn" @click.stop="treeMoveDown(data)" title="下移">↓</button>
+                    <button class="tree-act-btn" @click.stop="treeCopy(data); showMobileTree=false;" title="复制">📋</button>
                     <button v-if="data.type==='house'" class="tree-act-btn" @click.stop="showAddRoom(data); showMobileTree=false;" title="添加房间">+🚪</button>
                     <button v-if="data.type==='room'" class="tree-act-btn" @click.stop="onTreeAddContainer(data); showMobileTree=false;" title="添加柜子">+🗄️</button>
                     <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddBox(data); showMobileTree=false;" title="添加盒子">+📦</button>
@@ -763,11 +835,13 @@
           <template #footer><el-button @click="clearDialog.visible=false">取消</el-button><el-button type="danger" @click="doClearGitHub" :loading="store.loading">确认清空</el-button></template>
         </el-dialog>
 
-        <!-- 类别 / 标签管理弹窗 -->
-        <el-dialog v-model="manageDialog.visible" :title="manageDialog.type==='category'?'类别管理':'标签管理'" width="92%" :style="{maxWidth:'500px'}" :close-on-click-modal="false">
+        <!-- 管理弹窗（类别/标签/房间类型/柜子类型） -->
+        <el-dialog v-model="manageDialog.visible" title="管理" width="92%" :style="{maxWidth:'500px'}" :close-on-click-modal="false">
           <div class="manage-dialog-body">
-            <list-manager v-if="manageDialog.type==='category'" title="类别" icon="🏷️" :items="store.categories" @add="addCategory" @update="updateCategory" @delete="deleteCategory" />
-            <list-manager v-else title="标签" icon="🔖" :items="store.tags" @add="addTag" @update="updateTag" @delete="deleteTag" />
+            <list-manager :title="manageIcon(manageDialog.type)" icon="📋" :items="manageItems(manageDialog.type)"
+              @add="(n) => manageAdd(manageDialog.type, n)"
+              @update="(i,n) => manageUpdate(manageDialog.type, i, n)"
+              @delete="(i) => manageDelete(manageDialog.type, i)" />
           </div>
         </el-dialog>
 
@@ -783,7 +857,7 @@
         <el-dialog v-model="rd.visible" :title="rd.isEdit?'编辑房间':'添加房间'" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
           <el-form :model="rd.form" label-width="60px">
             <el-form-item label="名称" required><el-input v-model="rd.form.name" placeholder="如：主卧" /></el-form-item>
-            <el-form-item label="类型"><el-select v-model="rd.form.type" filterable allow-create default-first-option style="width:100%"><el-option v-for="t in presets.roomType" :key="t" :label="t" :value="t" /></el-select></el-form-item>
+            <el-form-item label="类型"><el-select v-model="rd.form.type" filterable allow-create default-first-option style="width:100%"><el-option v-for="t in store.roomTypes" :key="t.id" :label="t.name" :value="t.name" /></el-select></el-form-item>
             <el-form-item label="标签"><tag-input v-model="rd.form.tags" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="rd.form.remark" type="textarea" :rows="2" /></el-form-item>
           </el-form>
@@ -793,7 +867,7 @@
         <el-dialog v-model="cd.visible" :title="cd.isEdit?'编辑柜子':'添加柜子'" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
           <el-form :model="cd.form" label-width="60px">
             <el-form-item label="名称" required><el-input v-model="cd.form.name" placeholder="如：衣柜" /></el-form-item>
-            <el-form-item label="类型"><el-select v-model="cd.form.type" filterable allow-create default-first-option style="width:100%"><el-option v-for="t in presets.containerType" :key="t" :label="t" :value="t" /></el-select></el-form-item>
+            <el-form-item label="类型"><el-select v-model="cd.form.type" filterable allow-create default-first-option style="width:100%"><el-option v-for="t in store.containerTypes" :key="t.id" :label="t.name" :value="t.name" /></el-select></el-form-item>
             <el-form-item label="标签"><tag-input v-model="cd.form.tags" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="cd.form.remark" type="textarea" :rows="2" /></el-form-item>
           </el-form>
@@ -1033,6 +1107,24 @@
       }
 
       function showManageDialog(type) { manageDialog.type = type; manageDialog.visible = true; }
+      function manageIcon(t) {
+        return { category: '🏷️物品', tag: '🔖标签', roomType: '🚪房间', containerType: '🗄️柜子' }[t] || t;
+      }
+      function manageItems(t) {
+        return { category: store.categories, tag: store.tags, roomType: store.roomTypes, containerType: store.containerTypes }[t] || [];
+      }
+      function manageAdd(t, name) {
+        const fns = { category: addCategory, tag: addTag, roomType: addRoomType, containerType: addContainerType };
+        if (fns[t]) fns[t](name);
+      }
+      function manageUpdate(t, item, name) {
+        const fns = { category: updateCategory, tag: updateTag, roomType: updateRoomType, containerType: updateContainerType };
+        if (fns[t]) fns[t](item, name);
+      }
+      function manageDelete(t, item) {
+        const fns = { category: deleteCategory, tag: deleteTag, roomType: deleteRoomType, containerType: deleteContainerType };
+        if (fns[t]) fns[t](item);
+      }
 
       function toggleExpand(id) {
         expandedIds.has(id) ? expandedIds.delete(id) : expandedIds.add(id);
@@ -1108,7 +1200,15 @@
       function onTreeAddBox(data) { showAddBox(data.entity); }
       function onTreeAddItem(data) { showAddItem(data.entity); }
 
-      // ===== Category / Tag management =====
+      function treeMoveUp(data) { moveEntityUp(data.entity, data.type); markDirty(); }
+      function treeMoveDown(data) { moveEntityDown(data.entity, data.type); markDirty(); }
+      function treeCopy(data) { copyEntity(data.entity, data.type); markDirty(); ElementPlus.ElMessage.success('已复制 ' + data.entity.name); }
+      function copyFromCard(entity, type) {
+        const clone = copyEntity(entity, type);
+        if (clone) { markDirty(); ElementPlus.ElMessage.success('已复制 ' + entity.name); }
+      }
+
+      // ===== Category / Tag / Type management =====
       function addCategory(name) { store.categories.push({ id: genId(), name }); markDirty(); }
       function updateCategory(item, name) { item.name = name; markDirty(); }
       function deleteCategory(item) { ElementPlus.ElMessageBox.confirm('确定删除类别「' + item.name + '」吗？', '确认删除', { type: 'warning' }).then(() => { removeFromArray(store.categories, item.id); markDirty(); }).catch(() => {}); }
@@ -1116,6 +1216,13 @@
       function addTag(name) { store.tags.push({ id: genId(), name }); markDirty(); }
       function updateTag(item, name) { item.name = name; markDirty(); }
       function deleteTag(item) { ElementPlus.ElMessageBox.confirm('确定删除标签「' + item.name + '」吗？', '确认删除', { type: 'warning' }).then(() => { removeFromArray(store.tags, item.id); markDirty(); }).catch(() => {}); }
+
+      function addRoomType(name) { store.roomTypes.push({ id: genId(), name }); markDirty(); }
+      function updateRoomType(item, name) { item.name = name; markDirty(); }
+      function deleteRoomType(item) { ElementPlus.ElMessageBox.confirm('确定删除房间类型「' + item.name + '」吗？', '确认', { type: 'warning' }).then(() => { removeFromArray(store.roomTypes, item.id); markDirty(); }).catch(() => {}); }
+      function addContainerType(name) { store.containerTypes.push({ id: genId(), name }); markDirty(); }
+      function updateContainerType(item, name) { item.name = name; markDirty(); }
+      function deleteContainerType(item) { ElementPlus.ElMessageBox.confirm('确定删除柜子类型「' + item.name + '」吗？', '确认', { type: 'warning' }).then(() => { removeFromArray(store.containerTypes, item.id); markDirty(); }).catch(() => {}); }
 
       function onCategoryChange(val) {
         if (val && !store.categories.find(c => c.name === val)) {
@@ -1277,7 +1384,7 @@
       function logout() {
         stopAutoSync();
         localStorage.removeItem('xiaohua_xiaofeng_logged_in');
-        store.loggedIn = false; store.githubToken = ''; store.githubRepo = ''; store.houses = []; store.categories = []; store.tags = [];
+        store.loggedIn = false; store.githubToken = ''; store.githubRepo = ''; store.houses = []; store.categories = []; store.tags = []; store.roomTypes = []; store.containerTypes = [];
       }
 
       return {
@@ -1301,7 +1408,11 @@
         onTreeAddContainer, onTreeAddBox, onTreeAddItem,
         addCategory, updateCategory, deleteCategory,
         addTag, updateTag, deleteTag,
+        addRoomType, updateRoomType, deleteRoomType,
+        addContainerType, updateContainerType, deleteContainerType,
+        manageIcon, manageItems, manageAdd, manageUpdate, manageDelete,
         onCategoryChange,
+        treeMoveUp, treeMoveDown, treeCopy, copyFromCard,
         showAddHouse, saveHouse,
         showAddRoom, showAddRoomForHouse, saveRoom,
         showAddContainer, saveContainer,

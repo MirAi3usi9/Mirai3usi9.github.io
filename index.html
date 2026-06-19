@@ -116,11 +116,21 @@
       width: 260px; min-width: 220px; background: #fff; border-right: 1px solid #ffd6e0;
       display: flex; flex-direction: column; overflow: hidden;
     }
+    .sidebar-section { display: flex; flex-direction: column; }
+    .sidebar-mgmt { border-bottom: 1px solid #ffd6e0; flex-shrink: 0; }
+    .sidebar-tree-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    .sidebar-tree-area .el-tree { flex: 1; overflow: auto; padding: 8px 0; }
     .sidebar-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 18px; border-bottom: 1px solid #ffd6e0; font-weight: 600; color: #5a3a47;
+      padding: 12px 14px; border-bottom: 1px solid #ffd6e0; font-weight: 600; color: #5a3a47; font-size: 14px;
     }
-    .sidebar .el-tree { flex: 1; overflow: auto; padding: 8px 0; }
+    .mgmt-btns { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 12px; }
+    .mgmt-btn {
+      background: #fff8fa; border: 1px solid #ffd6e0; border-radius: 6px;
+      font-size: 12px; cursor: pointer; padding: 5px 8px; color: #a06075;
+      white-space: nowrap; transition: all 0.15s;
+    }
+    .mgmt-btn:hover { background: #fff0f4; border-color: var(--primary); color: var(--primary); }
 
     .tree-node { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 6px; font-size: 13px; }
     .tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -268,6 +278,16 @@
     .entity-card.highlight {
       animation: card-pulse 2.2s ease-in-out;
     }
+    .entity-card.quick-add-card {
+      border: 2px dashed #ffd6e0; background: #fff8fa; min-height: 60px;
+      width: auto; min-width: 60px; display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; box-shadow: none; padding: 6px; gap: 4px;
+    }
+    .entity-card.quick-add-card:hover { border-color: var(--primary); background: #fff0f4; }
+    .quick-add-content { display: flex; gap: 4px; align-items: center; }
+    .tree-children.empty .quick-add-card { min-height: 80px; min-width: 100px; }
+    .tree-children.empty .quick-add-content { flex-direction: column; }
+    .tree-children.empty .quick-add-content .ec-act { font-size: 13px; padding: 6px 10px; }
     @keyframes card-pulse {
       0%, 100% { box-shadow: 0 0 0 3px var(--primary), 0 6px 18px rgba(0,0,0,0.12); }
       50% { box-shadow: 0 0 0 8px rgba(255,133,162,0.35), 0 8px 26px rgba(0,0,0,0.15); }
@@ -361,6 +381,8 @@
       .tree-node { padding-right: 2px; font-size: 14px; }
       .tree-act-btn { font-size: 16px; padding: 4px 7px; }
       .sync-status { display: none; }
+      .mobile-mgmt { display: flex; flex-wrap: wrap; gap: 6px; }
+      .mobile-mgmt .mgmt-btn { font-size: 13px; padding: 6px 10px; }
     }
   </style>
 </head>
