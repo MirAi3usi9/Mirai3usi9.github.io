@@ -527,8 +527,9 @@
           if (key && key.indexOf('xiaohua_xiaofeng_') === 0) keysToRemove.push(key);
         }
         keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
-        ElementPlus.ElMessage.success('缓存已清除，即将刷新页面');
-        setTimeout(function() { location.reload(); }, 1000);
+        ElementPlus.ElMessage.success('缓存已清除，即将强制刷新');
+        // 添加时间戳参数强制浏览器重新请求所有资源（CSS / JS / HTML），不使用 HTTP 缓存
+        setTimeout(function() { location.href = location.href.split('?')[0] + '?_cache=' + Date.now(); }, 1000);
       }
       return { password, logging, error, login, clearLocalData };
     },
