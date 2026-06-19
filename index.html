@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+  <title>小花与小风</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body, #app { height: 100%; font-family: -apple-system, 'Microsoft YaHei', sans-serif; background: #f5f7fa; }
+    :root { --primary: #409eff; --bg: #f5f7fa; --card-bg: #fff; --radius: 12px; }
+
+    /* ===== 登录 ===== */
+    .login-container {
+      height: 100%; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+    .login-card {
+      background: rgba(255,255,255,0.95); padding: 32px 24px; border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 88%; max-width: 360px; text-align: center;
+      backdrop-filter: blur(10px);
+    }
+    .login-avatar { font-size: 56px; margin-bottom: 8px; }
+    .login-card h1 { font-size: 26px; color: #333; margin-bottom: 4px; letter-spacing: 2px; }
+    .login-subtitle { color: #999; font-size: 14px; margin-bottom: 24px; }
+
+    /* ===== 主菜单 ===== */
+    .menu-page {
+      height: 100%; display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #43e97b 0%, #38f9d7 100%);
+    }
+    .menu-header { text-align: center; padding: 48px 20px 32px; color: #fff; }
+    .menu-avatar { font-size: 72px; margin-bottom: 8px; }
+    .menu-header h1 { font-size: 28px; letter-spacing: 3px; text-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .menu-subtitle { font-size: 14px; opacity: 0.85; margin-top: 4px; }
+    .menu-grid {
+      flex: 1; padding: 0 16px 24px; display: flex; flex-direction: column; gap: 12px;
+      overflow-y: auto;
+    }
+    .menu-card {
+      background: var(--card-bg); border-radius: var(--radius); padding: 20px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06); cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s; display: flex; align-items: center; gap: 16px;
+    }
+    .menu-card:active { transform: scale(0.98); }
+    .menu-card-icon { font-size: 40px; flex-shrink: 0; }
+    .menu-card-title { font-size: 17px; font-weight: 600; color: #303133; margin-bottom: 2px; }
+    .menu-card-desc { font-size: 13px; color: #909399; }
+    .menu-footer { text-align: center; padding: 12px; }
+
+    /* ===== 收纳管理页 ===== */
+    .storage-page { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+    .s-header {
+      display: flex; align-items: center; padding: 8px 12px; background: #fff;
+      border-bottom: 1px solid #e4e7ed; gap: 8px; z-index: 10;
+    }
+    .s-back {
+      background: none; border: none; font-size: 22px; cursor: pointer;
+      padding: 4px 8px; color: #303133; line-height: 1;
+    }
+    .s-header span { flex: 1; font-size: 16px; font-weight: 600; color: #303133; }
+    .s-header-right { display: flex; gap: 4px; }
+    .s-search-btn, .s-tree-btn {
+      background: none; border: none; font-size: 20px; cursor: pointer;
+      padding: 6px 8px; border-radius: 8px; line-height: 1;
+    }
+    .s-search-btn:hover, .s-tree-btn:hover { background: #f0f2f5; }
+    .s-body { flex: 1; display: flex; overflow: hidden; }
+    .s-search-bar {
+      display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+      background: #fff; border-bottom: 1px solid #e4e7ed; flex-wrap: wrap;
+    }
+
+    /* 内容区 */
+    .s-content { flex: 1; overflow-y: auto; padding: 0; }
+    .item-list-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 16px; background: #fff; margin-bottom: 8px;
+      border-bottom: 1px solid #f0f0f0; position: sticky; top: 0; z-index: 5;
+    }
+    .item-list-path { font-size: 13px; color: #909399; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* 物品卡片 */
+    .item-grid { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .item-card {
+      background: #fff; border-radius: 10px; padding: 14px 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .item-card-name { font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 6px; }
+    .item-card-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .item-card-time { font-size: 12px; color: #c0c4cc; }
+    .item-card-remark { font-size: 13px; color: #909399; margin-bottom: 8px; padding: 4px 8px; background: #f5f7fa; border-radius: 6px; }
+    .item-card-actions { display: flex; gap: 12px; justify-content: flex-end; }
+    .item-empty {
+      color: #909399; text-align: center; padding: 48px 16px; font-size: 14px;
+    }
+
+    /* 桌面侧栏 */
+    .s-sidebar {
+      width: 300px; min-width: 260px; background: #fff; border-right: 1px solid #e4e7ed;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .s-sidebar-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid #e4e7ed; font-weight: 600; color: #303133;
+    }
+    .s-sidebar .el-tree { flex: 1; overflow: auto; padding: 8px 0; }
+
+    /* 树节点 */
+    .tree-node { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 8px; font-size: 13px; }
+    .tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .tree-actions { display: none; gap: 2px; flex-shrink: 0; margin-left: 4px; }
+    .tree-node:hover .tree-actions { display: inline-flex; }
+    .tree-actions .el-button { font-size: 12px; padding: 0 4px; }
+
+    /* 搜索结果 */
+    .search-results { padding: 8px 12px; }
+    .search-item {
+      background: #fff; border: 1px solid #ebeef5; border-radius: 10px; padding: 12px 14px;
+      margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s;
+    }
+    .search-item:active { border-color: var(--primary); }
+    .search-name { font-size: 15px; font-weight: 600; color: #303133; margin-bottom: 4px; }
+    .search-path { font-size: 12px; color: #909399; margin-bottom: 6px; word-break: break-all; }
+    .search-meta { display: flex; align-items: center; gap: 8px; }
+
+    /* 空状态 */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #909399; font-size: 15px; gap: 8px; }
+
+    /* 手机端侧栏抽屉 */
+    .mobile-tree-header { padding: 8px 0 12px; }
+
+    /* 桌面响应式 */
+    @media (min-width: 768px) {
+      .s-content { padding: 0; }
+      .item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus/dist/index.full.min.js"></script>
+  <script src="https://unpkg.com/@element-plus/icons-vue/dist/index.iife.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
