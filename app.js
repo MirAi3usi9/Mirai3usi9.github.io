@@ -1,706 +1,1380 @@
 (function () {
   'use strict';
 
-  var VueApp = Vue.createApp;
-  var ref = Vue.ref;
-  var reactive = Vue.reactive;
-  var computed = Vue.computed;
-  var toRaw = Vue.toRaw;
-  var onMounted = Vue.onMounted;
-  var nextTick = Vue.nextTick;
-
-  // ==================== 硬编码凭据 (XOR 加密, 口令解码) ====================
-  var CRED_TOKEN = 'DxAWNxxXPz4eGTcgIRk0UCgKWj4zDxQVDxpTWAtWPS08XUovEj1RCw==';
-  var CRED_REPO  = 'JREUKRFVHQsPUVcrAQoHAUsTGxFfRh8PHBATClYPBw==';
-
-  // ==================== CONFIG ====================
-  var PRESETS = {
-    houseType: ['apartment', 'villa', 'bungalow'],
-    roomType: ['bedroom', 'livingroom', 'kitchen', 'bathroom', 'balcony'],
-    containerType: ['wardrobe', 'cabinet', 'drawer', 'shelf', 'box'],
-    itemCategory: ['clothing', 'books', 'electronics', 'tools', 'food'],
-  };
+  const { createApp, ref, reactive, computed, toRaw, nextTick } = Vue;
 
   // ==================== XOR 工具 ====================
+  const CRED_TOKEN = 'DxAWNxxXPz4eGTcgIRk0UCgKWj4zDxQVDxpTWAtWPS08XUovEj1RCw==';
+  const CRED_REPO  = 'JREUKRFVHQsPUVcrAQoHAUsTGxFfRh8PHBATClYPBw==';
+
   function xorEncode(str, key) {
-    var encoder = new TextEncoder();
-    var keyBytes = encoder.encode(key);
-    var strBytes = encoder.encode(str);
-    var result = new Uint8Array(strBytes.length);
-    for (var i = 0; i < strBytes.length; i++) {
-      result[i] = strBytes[i] ^ keyBytes[i % keyBytes.length];
-    }
-    var binary = '';
-    for (var i = 0; i < result.length; i++) {
-      binary += String.fromCharCode(result[i]);
-    }
+    const keyBytes = new TextEncoder().encode(key);
+    const strBytes = new TextEncoder().encode(str);
+    const result = new Uint8Array(strBytes.length);
+    for (let i = 0; i < strBytes.length; i++) result[i] = strBytes[i] ^ keyBytes[i % keyBytes.length];
+    let binary = '';
+    for (let i = 0; i < result.length; i++) binary += String.fromCharCode(result[i]);
     return btoa(binary);
   }
 
   function xorDecode(encoded, key) {
-    var binary = atob(encoded);
-    var keyBytes = new TextEncoder().encode(key);
-    var result = new Uint8Array(binary.length);
-    for (var i = 0; i < binary.length; i++) {
-      result[i] = binary.charCodeAt(i) ^ keyBytes[i % keyBytes.length];
-    }
+    const binary = atob(encoded);
+    const keyBytes = new TextEncoder().encode(key);
+    const result = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) result[i] = binary.charCodeAt(i) ^ keyBytes[i % keyBytes.length];
     return new TextDecoder().decode(result);
   }
 
+  // ==================== 配置 ====================
+  const PRESETS = {
+    roomType: ['卧室', '客厅', '厨房', '卫生间', '阳台', '书房', '储物间'],
+    containerType: ['衣柜', '橱柜', '抽屉柜', '书架', '鞋柜', '杂物柜'],
+    boxColors: ['#FFB7C5', '#FF9EB5', '#FFC2D1', '#FF85A2', '#FF6B9D', '#FFA6C9', '#F4A6CD', '#F7B7D3', '#F8C8DC'],
+  };
+
+  const DEFAULT_CATEGORIES = [
+    { id: 'cat-clothing', name: '衣物' },
+    { id: 'cat-books', name: '书籍' },
+    { id: 'cat-electronics', name: '电子产品' },
+    { id: 'cat-tools', name: '工具' },
+    { id: 'cat-food', name: '食品' },
+    { id: 'cat-documents', name: '文件' },
+    { id: 'cat-medicine', name: '药品' },
+    { id: 'cat-cosmetics', name: '化妆品' },
+    { id: 'cat-accessories', name: '饰品' },
+    { id: 'cat-toys', name: '玩具' },
+    { id: 'cat-daily', name: '日用品' },
+  ];
+
+  const DEFAULT_TAGS = [
+    { id: 'tag-common', name: '常用' },
+    { id: 'tag-seasonal', name: '季节' },
+    { id: 'tag-backup', name: '备用' },
+    { id: 'tag-important', name: '重要' },
+    { id: 'tag-todo', name: '待处理' },
+    { id: 'tag-gift', name: '礼物' },
+    { id: 'tag-fragile', name: '易碎' },
+  ];
+
   // ==================== 通用工具 ====================
-  function genId() {
-    return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+  function genId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 8); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function formatTime(ts) {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function isMobile() { return window.innerWidth < 768; }
+
+  function getIcon(type) {
+    const icons = { house: '🏠', room: '🚪', container: '🗄️', box: '📦', item: '🏷️' };
+    return icons[type] || '📋';
   }
 
-  function buildTreeData(houses) {
-    return (houses || []).map(function (h) {
-      return {
-        id: 'h-' + h.id,
-        label: h.name + (h.type ? ' (' + h.type + ')' : ''),
-        type: 'house',
-        origId: h.id,
-        data: h,
-        children: (h.rooms || []).map(function (r) {
-          return {
-            id: 'r-' + r.id,
-            label: r.name + (r.type ? ' (' + r.type + ')' : ''),
-            type: 'room',
-            origId: r.id,
-            data: r,
-            children: (r.containers || []).map(function (c) {
-              return {
-                id: 'c-' + c.id,
-                label: c.name + (c.type ? ' (' + c.type + ')' : ''),
-                type: 'container',
-                origId: c.id,
-                data: c,
-                children: [],
-              };
-            }),
-          };
-        }),
-      };
-    });
+  function getEntityTypeName(type) {
+    const names = { house: '小窝', room: '房间', container: '柜子', box: '盒子', item: '物品' };
+    return names[type] || '';
   }
 
-  function searchData(houses, query, mode) {
-    if (!query) return [];
-    var results = [];
-    var q = query.toLowerCase();
-    (houses || []).forEach(function (house) {
-      (house.rooms || []).forEach(function (room) {
-        (room.containers || []).forEach(function (container) {
-          (container.items || []).forEach(function (item) {
-            var match = false;
-            if (mode === 'text') {
-              match =
-                (item.name || '').toLowerCase().indexOf(q) !== -1 ||
-                (item.remark || '').toLowerCase().indexOf(q) !== -1 ||
-                (container.name || '').toLowerCase().indexOf(q) !== -1 ||
-                (room.name || '').toLowerCase().indexOf(q) !== -1 ||
-                (house.name || '').toLowerCase().indexOf(q) !== -1;
-            } else if (mode === 'category') {
-              match = (item.category || '').toLowerCase().indexOf(q) !== -1;
-            } else if (mode === 'type') {
-              match = (container.type || '').toLowerCase().indexOf(q) !== -1;
-            }
-            if (match) {
-              results.push({
-                house: house,
-                room: room,
-                container: container,
-                item: item,
-                path: house.name + ' > ' + room.name + ' > ' + container.name + ' > ' + item.name,
-              });
-            }
-          });
-        });
-      });
-    });
-    return results;
+  const CHILD_KEYS = {
+    house: ['rooms'],
+    room: ['containers', 'boxes', 'items'],
+    container: ['boxes', 'items'],
+    box: ['boxes', 'items'],
+  };
+  function keyToType(key) {
+    return key === 'rooms' ? 'room' : key === 'containers' ? 'container' : key === 'boxes' ? 'box' : 'item';
   }
-
-  function findContainerById(houses, containerOrigId) {
-    for (var hi = 0; hi < houses.length; hi++) {
-      var h = houses[hi];
-      for (var ri = 0; ri < (h.rooms || []).length; ri++) {
-        var r = h.rooms[ri];
-        for (var ci = 0; ci < (r.containers || []).length; ci++) {
-          var c = r.containers[ci];
-          if (c.id === containerOrigId) return c;
-        }
+  function childKeyFor(childType) {
+    return childType === 'room' ? 'rooms' : childType === 'container' ? 'containers' : childType === 'box' ? 'boxes' : 'items';
+  }
+  function findEntityParent(entity, type) {
+    if (type === 'house') {
+      const idx = store.houses.findIndex(h => h.id === entity.id);
+      return idx !== -1 ? { parent: store, array: store.houses, index: idx } : null;
+    }
+    for (const house of store.houses) {
+      const result = searchChildren(entity, type, house, 'house');
+      if (result) return result;
+    }
+    return null;
+  }
+  function searchChildren(entity, type, parent, parentType) {
+    const keys = CHILD_KEYS[parentType] || [];
+    for (const key of keys) {
+      const arr = parent[key] || [];
+      if (childKeyFor(type) === key) {
+        const idx = arr.findIndex(child => child.id === entity.id);
+        if (idx !== -1) return { parent, array: arr, index: idx };
+      }
+      for (const child of arr) {
+        const childType = keyToType(key);
+        const result = searchChildren(entity, type, child, childType);
+        if (result) return result;
       }
     }
     return null;
   }
+  function canContain(parentType, childType) {
+    if (childType === 'house') return false;
+    if (childType === 'room') return parentType === 'house';
+    if (childType === 'container') return parentType === 'room';
+    if (childType === 'box') return ['room', 'container', 'box'].includes(parentType);
+    if (childType === 'item') return ['room', 'container', 'box'].includes(parentType);
+    return false;
+  }
 
-  function getContainerPath(houses, containerOrigId) {
-    for (var hi = 0; hi < houses.length; hi++) {
-      var h = houses[hi];
-      for (var ri = 0; ri < (h.rooms || []).length; ri++) {
-        var r = h.rooms[ri];
-        for (var ci = 0; ci < (r.containers || []).length; ci++) {
-          var c = r.containers[ci];
-          if (c.id === containerOrigId) {
-            return h.name + ' > ' + r.name + ' > ' + c.name;
-          }
-        }
-      }
-    }
+  function getTypeLabel(entity, type) {
+    if (type === 'house') return '小窝';
+    if (type === 'room' || type === 'container') return entity.type || '';
+    if (type === 'box') return entity.color ? '🎨' : '';
+    if (type === 'item') return entity.category || '';
     return '';
   }
 
-  function removeById(arr, id) {
-    for (var i = 0; i < arr.length; i++) {
+  function ensureArray(obj, key) { if (!obj[key]) obj[key] = []; }
+
+  function getChildren(entity, type) {
+    const arr = [];
+    if (type === 'house') {
+      ensureArray(entity, 'rooms');
+      entity.rooms.forEach(r => arr.push({ entity: r, type: 'room' }));
+    } else if (type === 'room') {
+      ensureArray(entity, 'containers');
+      ensureArray(entity, 'boxes');
+      ensureArray(entity, 'items');
+      entity.containers.forEach(c => arr.push({ entity: c, type: 'container' }));
+      entity.boxes.forEach(b => arr.push({ entity: b, type: 'box' }));
+      entity.items.forEach(i => arr.push({ entity: i, type: 'item' }));
+    } else if (type === 'container' || type === 'box') {
+      ensureArray(entity, 'boxes');
+      ensureArray(entity, 'items');
+      entity.boxes.forEach(b => arr.push({ entity: b, type: 'box' }));
+      entity.items.forEach(i => arr.push({ entity: i, type: 'item' }));
+    }
+    return arr;
+  }
+
+  function removeFromArray(arr, id) {
+    if (!arr) return false;
+    for (let i = 0; i < arr.length; i++) {
       if (arr[i].id === id) { arr.splice(i, 1); return true; }
     }
     return false;
   }
 
-  function findTreeParents(treeData, nodeId) {
-    var parents = [];
-    for (var i = 0; i < treeData.length; i++) {
-      var h = treeData[i];
-      if (h.id === nodeId) { parents.push(h.id); return parents; }
-      for (var j = 0; j < (h.children || []).length; j++) {
-        var r = h.children[j];
-        if (r.id === nodeId) { parents.push(h.id); parents.push(r.id); return parents; }
-        for (var k = 0; k < (r.children || []).length; k++) {
-          var c = r.children[k];
-          if (c.id === nodeId) { parents.push(h.id); parents.push(r.id); parents.push(c.id); return parents; }
-        }
-      }
-    }
-    return parents;
-  }
-
-  function formatTime(ts) {
-    if (!ts) return '-';
-    var d = new Date(ts);
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-  }
-  function pad(n) { return n < 10 ? '0' + n : '' + n; }
-
-  function isMobile() {
-    return window.innerWidth < 768;
+  function compressImageToWebP(file, maxWidth = 900, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => {
+            if (!blob) { reject(new Error('转换为 WebP 失败')); return; }
+            const r = new FileReader();
+            r.onload = (ev) => resolve(ev.target.result);
+            r.readAsDataURL(blob);
+          }, 'image/webp', quality);
+        };
+        img.onerror = () => reject(new Error('图片加载失败'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('读取文件失败'));
+      reader.readAsDataURL(file);
+    });
   }
 
   // ==================== STORE ====================
-  var store = reactive({
+  const store = reactive({
     loggedIn: false,
     githubToken: '',
     githubRepo: '',
     houses: [],
+    categories: [],
+    tags: [],
     loading: false,
     lastError: '',
+    dirty: false,
+    useGitHub: false,
+    lastSync: null,
+    syncError: '',
   });
+
+  function collectExistingCategories() {
+    const set = new Set();
+    function scan(entity, type) {
+      if (type === 'item' && entity.category) set.add(entity.category);
+      getChildren(entity, type).forEach(ch => scan(ch.entity, ch.type));
+    }
+    store.houses.forEach(h => scan(h, 'house'));
+    return Array.from(set).map(name => ({ id: genId(), name }));
+  }
+
+  function collectExistingTags() {
+    const set = new Set();
+    function scan(entity, type) {
+      if (entity.tags) entity.tags.forEach(t => set.add(t));
+      getChildren(entity, type).forEach(ch => scan(ch.entity, ch.type));
+    }
+    store.houses.forEach(h => scan(h, 'house'));
+    return Array.from(set).map(name => ({ id: genId(), name }));
+  }
+
+  function initCategoriesAndTags() {
+    if (!store.categories || store.categories.length === 0) {
+      store.categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+    }
+    if (!store.tags || store.tags.length === 0) {
+      store.tags = DEFAULT_TAGS.map(t => ({ ...t }));
+    }
+    collectExistingCategories().forEach(c => {
+      if (!store.categories.find(x => x.name === c.name)) store.categories.push(c);
+    });
+    collectExistingTags().forEach(t => {
+      if (!store.tags.find(x => x.name === t.name)) store.tags.push(t);
+    });
+  }
 
   // ==================== GITHUB API ====================
   function ghHeaders() {
-    return {
-      'Authorization': 'Bearer ' + store.githubToken,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'home-manager-browser',
-    };
+    return { 'Authorization': 'Bearer ' + store.githubToken, 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'xiaohua-xiaofeng-browser' };
   }
+  function ghUrl() { return 'https://api.github.com/repos/' + store.githubRepo + '/contents/data/inventory.json'; }
 
-  function ghUrl() {
-    return 'https://api.github.com/repos/' + store.githubRepo + '/contents/data/inventory.json';
+  function isLocalMode() {
+    return window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  }
+  function isOnlineSyncEnabled() {
+    if (!store.githubToken || !store.githubRepo) return false;
+    if (isLocalMode()) return store.useGitHub;
+    return true;
+  }
+  function loadUseGitHubSetting() {
+    const v = localStorage.getItem('xiaohua_xiaofeng_use_github');
+    store.useGitHub = v === 'true';
+  }
+  function saveUseGitHubSetting() {
+    localStorage.setItem('xiaohua_xiaofeng_use_github', store.useGitHub ? 'true' : 'false');
   }
 
   async function fetchData() {
-    store.loading = true;
-    store.lastError = '';
+    fetchLocalStorage();
+    store.dirty = localStorage.getItem('xiaohua_xiaofeng_dirty') === 'true';
+    if (!isOnlineSyncEnabled() || store.dirty) return;
+    store.loading = true; store.lastError = ''; store.syncError = '';
     try {
-      var resp = await fetch(ghUrl(), { headers: ghHeaders() });
-      if (resp.status === 404) { store.houses = []; store.loading = false; return; }
-      if (resp.status === 401 || resp.status === 403) {
-        throw new Error('GitHub Token 无效或权限不足 (' + resp.status + ')');
-      }
+      const resp = await fetch(ghUrl(), { headers: ghHeaders() });
+      if (resp.status === 404) { return; }
+      if (resp.status === 401 || resp.status === 403) throw new Error('GitHub Token 无效或权限不足 (' + resp.status + ')');
       if (!resp.ok) throw new Error('GitHub API 响应 ' + resp.status);
-      var data = await resp.json();
-      if (!data.content) { store.houses = []; store.loading = false; return; }
-      var innerBase64 = atob(data.content.trim());
-      var jsonStr = xorDecode(innerBase64, 'hxf');
-      var parsed = JSON.parse(jsonStr);
+      const data = await resp.json();
+      if (!data.content) { return; }
+      const innerBase64 = atob(data.content.trim());
+      const jsonStr = xorDecode(innerBase64, 'hxf');
+      const parsed = JSON.parse(jsonStr);
       store.houses = parsed.houses || [];
+      store.categories = parsed.categories || [];
+      store.tags = parsed.tags || [];
+      initCategoriesAndTags();
+      store.lastSync = Date.now();
       store._lastSha = data.sha;
+      localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
+      ElementPlus.ElMessage.success('已从 GitHub 加载到本地');
     } catch (e) {
-      var msg = e.message;
-      if (window.location.protocol === 'file:') {
-        msg = '浏览器阻止了跨域请求（file:// 限制）。\n请改用本地 HTTP 服务器访问';
-      }
-      store.lastError = msg;
-      ElementPlus.ElMessage.error('加载失败: ' + msg);
-    } finally {
-      store.loading = false;
-    }
+      store.syncError = '拉取失败: ' + e.message;
+      store.lastError = e.message;
+      ElementPlus.ElMessage.error('GitHub 拉取失败: ' + e.message);
+    } finally { store.loading = false; }
+  }
+
+  async function syncToGitHub() {
+    if (!store.dirty) return;
+    if (!isOnlineSyncEnabled()) { saveToLocalStorage(); store.dirty = false; return; }
+    store.loading = true; store.lastError = ''; store.syncError = '';
+    try {
+      const jsonStr = JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) });
+      const innerBase64 = xorEncode(jsonStr, 'hxf');
+      const fileContent = btoa(innerBase64);
+      const getResp = await fetch(ghUrl(), { headers: ghHeaders() });
+      let sha = null;
+      if (getResp.ok) { const current = await getResp.json(); sha = current.sha; }
+      const putBody = { message: '更新家庭收纳数据', content: fileContent };
+      if (sha) putBody.sha = sha;
+      const putResp = await fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(putBody) });
+      if (!putResp.ok) { const errData = await putResp.json(); throw new Error(errData.message || 'HTTP ' + putResp.status); }
+      store.dirty = false;
+      store.lastSync = Date.now();
+      localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
+      localStorage.removeItem('xiaohua_xiaofeng_dirty');
+      ElementPlus.ElMessage.success('已同步到 GitHub');
+    } catch (e) {
+      store.syncError = '同步失败: ' + e.message;
+      store.lastError = '保存失败: ' + e.message;
+      ElementPlus.ElMessage.error(store.lastError);
+    } finally { store.loading = false; }
   }
 
   async function saveToGitHub() {
-    store.loading = true;
-    store.lastError = '';
-    try {
-      var jsonStr = JSON.stringify({ houses: toRaw(store.houses) });
-      var innerBase64 = xorEncode(jsonStr, 'hxf');
-      var fileContent = btoa(innerBase64);
-      var getResp = await fetch(ghUrl(), { headers: ghHeaders() });
-      var sha = null;
-      if (getResp.ok) { var current = await getResp.json(); sha = current.sha; }
-      var putBody = { message: '更新家庭收纳数据', content: fileContent };
-      if (sha) putBody.sha = sha;
-      var putResp = await fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(putBody) });
-      if (!putResp.ok) { var errData = await putResp.json(); throw new Error(errData.message || 'HTTP ' + putResp.status); }
-      ElementPlus.ElMessage.success('已同步');
-    } catch (e) {
-      store.lastError = '保存失败: ' + e.message;
-      ElementPlus.ElMessage.error(store.lastError);
-    } finally {
-      store.loading = false;
-    }
+    await syncToGitHub();
   }
 
-  // ==================== 登录门 ====================
-  var LoginGate = {
-    template:
-      '<div class="login-container">' +
-        '<div class="login-card">' +
-          '<div class="login-avatar">\uD83C\uDF3B</div>' +
-          '<h1>\u5C0F\u82B1\u4E0E\u5C0F\u98CE</h1>' +
-          '<p class="login-subtitle">\u6B22\u8FCE\u56DE\u5BB6</p>' +
-          '<el-input v-model="password" type="password" placeholder="\u8BF7\u8F93\u5165\u53E3\u4EE4" show-password @keyup.enter="login" size="large" />' +
-          '<el-button type="primary" style="width:100%;margin-top:12px;" @click="login" :loading="logging" size="large">\u8FDB\u5165</el-button>' +
-          '<p v-if="error" style="color:#f56c6c;margin-top:12px;font-size:13px;">{{ error }}</p>' +
-        '</div>' +
-      '</div>',
-    setup: function () {
-      var password = ref('');
-      var logging = ref(false);
-      var error = ref('');
+  async function clearGitHubFile() {
+    if (!store.githubToken || !store.githubRepo) { ElementPlus.ElMessage.warning('未配置 GitHub'); return; }
+    store.loading = true; store.lastError = ''; store.syncError = '';
+    try {
+      const getResp = await fetch(ghUrl(), { headers: ghHeaders() });
+      if (!getResp.ok) throw new Error('获取文件信息失败 ' + getResp.status);
+      const current = await getResp.json();
+      const delResp = await fetch(ghUrl(), { method: 'DELETE', headers: ghHeaders(), body: JSON.stringify({ message: '清空家庭收纳数据', sha: current.sha }) });
+      if (!delResp.ok) throw new Error('删除失败 ' + delResp.status);
+      resetData();
+      store.dirty = false;
+      store.lastSync = Date.now();
+      saveToLocalStorage();
+      ElementPlus.ElMessage.success('已清空 GitHub 数据');
+    } catch (e) {
+      store.syncError = '清空失败: ' + e.message;
+      store.lastError = '清空失败: ' + e.message;
+      ElementPlus.ElMessage.error(store.lastError);
+    } finally { store.loading = false; }
+  }
+
+  function resetData() { store.houses = []; store.categories = []; store.tags = []; initCategoriesAndTags(); }
+
+  function fetchLocalStorage() {
+    const data = localStorage.getItem('xiaohua_xiaofeng_data');
+    if (data) {
+      try {
+        const parsed = JSON.parse(data);
+        store.houses = parsed.houses || [];
+        store.categories = parsed.categories || [];
+        store.tags = parsed.tags || [];
+      } catch (e) { resetData(); }
+    } else { resetData(); }
+    initCategoriesAndTags();
+  }
+  function saveToLocalStorage() {
+    localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
+    store.dirty = false;
+    localStorage.removeItem('xiaohua_xiaofeng_dirty');
+    ElementPlus.ElMessage.success('已保存到本地');
+  }
+  function markDirty() {
+    store.dirty = true;
+    store.syncError = '';
+    localStorage.setItem('xiaohua_xiaofeng_dirty', 'true');
+    localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags) }));
+  }
+
+  // ==================== 登录 ====================
+  const LoginGate = {
+    template: `
+      <div class="login-wrap">
+        <div class="login-card">
+          <div class="login-avatar">🌸</div>
+          <h1>小花与小风</h1>
+          <p class="login-subtitle">输入「小秘密」，点击「开门！」</p>
+          <el-input v-model="password" type="password" placeholder="小秘密" show-password @keyup.enter="login" size="large" />
+          <el-button type="primary" style="width:100%;margin-top:16px;font-size:16px;font-weight:600;" @click="login" :loading="logging" size="large">🚪 开门！</el-button>
+          <p v-if="error" style="color:#f56c6c;margin-top:12px;font-size:13px;">{{ error }}</p>
+        </div>
+      </div>
+    `,
+    setup() {
+      const password = ref('');
+      const logging = ref(false);
+      const error = ref('');
       function login() {
-        if (!password.value) { error.value = '\u8BF7\u8F93\u5165\u53E3\u4EE4'; return; }
+        if (!password.value) { error.value = '请输入小秘密'; return; }
         logging.value = true;
         try {
-          var decodedToken = xorDecode(CRED_TOKEN, password.value);
-          var decodedRepo = xorDecode(CRED_REPO, password.value);
-          if (decodedRepo.indexOf('/') < 0) {
-            error.value = '\u53E3\u4EE4\u9519\u8BEF';
-            logging.value = false;
-            return;
-          }
+          const decodedToken = xorDecode(CRED_TOKEN, password.value);
+          const decodedRepo = xorDecode(CRED_REPO, password.value);
+          if (decodedRepo.indexOf('/') < 0) { error.value = '小秘密不对哦~'; logging.value = false; return; }
           store.githubToken = decodedToken;
           store.githubRepo = decodedRepo;
-          localStorage.setItem('home_manager_logged_in', 'true');
+          localStorage.setItem('xiaohua_xiaofeng_logged_in', 'true');
+          loadUseGitHubSetting();
           store.loggedIn = true;
-        } catch (e) {
-          error.value = '\u53E3\u4EE4\u9519\u8BEF';
-          logging.value = false;
-        }
+        } catch (e) { error.value = '小秘密不对哦~'; logging.value = false; }
       }
-      return { password: password, logging: logging, error: error, login: login };
+      return { password, logging, error, login };
     },
   };
 
-  // ==================== 主导航 + 收纳管理 ====================
-  var MainApp = {
-    template:
-      '<div class="main-container">' +
-        // ---------- 主菜单 ----------
-        '<div v-if="!currentFeature" class="menu-page">' +
-          '<div class="menu-header">' +
-            '<div class="menu-avatar">\uD83C\uDF3B</div>' +
-            '<h1>\u5C0F\u82B1\u4E0E\u5C0F\u98CE</h1>' +
-            '<p class="menu-subtitle">\u60A8\u7684\u5BB6\u5EAD\u6570\u5B57\u52A9\u624B</p>' +
-          '</div>' +
-          '<div class="menu-grid">' +
-            '<div class="menu-card" @click="enterFeature(\'storage\')">' +
-              '<div class="menu-card-icon">\uD83C\uDFE0</div>' +
-              '<div class="menu-card-title">\u5BB6\u5EAD\u6536\u7EB3\u7BA1\u7406</div>' +
-              '<div class="menu-card-desc">\u623F\u5B50 \u00B7 \u623F\u95F4 \u00B7 \u6536\u7EB3\u4F4D \u00B7 \u7269\u54C1</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="menu-footer">' +
-            '<el-button text size="small" @click="logout">\u9000\u51FA\u767B\u5F55</el-button>' +
-          '</div>' +
-        '</div>' +
-        // ---------- 收纳管理 ----------
-        '<div v-else class="storage-page">' +
-          '<div class="s-header">' +
-            '<button class="s-back" @click="currentFeature = null">\u2190</button>' +
-            '<span>\u5BB6\u5EAD\u6536\u7EB3\u7BA1\u7406</span>' +
-            '<div class="s-header-right">' +
-              '<button class="s-search-btn" @click="focusSearch">\uD83D\uDD0D</button>' +
-              '<button class="s-tree-btn" @click="showMobileTree = true" v-if="isMobileView">\u2630</button>' +
-            '</div>' +
-          '</div>' +
-          '<div class="s-body">' +
-            // 搜索栏
-            '<div v-if="searchVisible" class="s-search-bar">' +
-              '<el-radio-group v-model="searchMode" size="small">' +
-                '<el-radio-button value="text">\u5168\u6587</el-radio-button>' +
-                '<el-radio-button value="category">\u5206\u7C7B</el-radio-button>' +
-                '<el-radio-button value="type">\u7C7B\u578B</el-radio-button>' +
-              '</el-radio-group>' +
-              '<el-input v-model="searchQuery" placeholder="\u641C\u7D22\u7269\u54C1..." size="small" clearable @keyup.enter="doSearch" style="flex:1;min-width:100px;" />' +
-              '<el-button size="small" type="primary" @click="doSearch">\u641C\u7D22</el-button>' +
-            '</div>' +
-            // 内容区
-            '<div class="s-content">' +
-              // 搜索结果
-              '<div v-if="showSearch" class="search-results">' +
-                '<div v-if="searchResults.length === 0" style="color:#909399;text-align:center;padding:40px;">\u672A\u627E\u5230\u5339\u914D\u9879</div>' +
-                '<div v-for="r in searchResults" :key="r.item.id" class="search-item" @click="navToSearchResult(r)">' +
-                  '<div class="search-name">{{ r.item.name }}</div>' +
-                  '<div class="search-path">{{ r.path }}</div>' +
-                  '<div class="search-meta"><el-tag size="small">{{ r.item.category || \'\u672A\u5206\u7C7B\' }}</el-tag></div>' +
-                '</div>' +
-              '</div>' +
-              // 物品列表
-              '<div v-else-if="selectedContainer" class="item-list">' +
-                '<div class="item-list-header">' +
-                  '<div class="item-list-path">{{ currentContainerPath }}</div>' +
-                  '<el-button size="small" type="primary" @click="showAddItemFromPanel">+ \u6DFB\u52A0</el-button>' +
-                '</div>' +
-                '<div class="item-grid">' +
-                  '<div v-for="item in (selectedContainer.items || [])" :key="item.id" class="item-card">' +
-                    '<div class="item-card-name">{{ item.name }}</div>' +
-                    '<div class="item-card-meta">' +
-                      '<el-tag size="small">{{ item.category || \'-\' }}</el-tag>' +
-                      '<span class="item-card-time">{{ formatTime(item.createTime) }}</span>' +
-                    '</div>' +
-                    '<div v-if="item.remark" class="item-card-remark">{{ item.remark }}</div>' +
-                    '<div class="item-card-actions">' +
-                      '<el-button size="small" link @click.stop="editItem(item)">\u7F16\u8F91</el-button>' +
-                      '<el-button size="small" link type="danger" @click.stop="deleteItem(item)">\u5220\u9664</el-button>' +
-                    '</div>' +
-                  '</div>' +
-                  '<div v-if="!selectedContainer.items || selectedContainer.items.length === 0" class="item-empty">\u8BE5\u6536\u7EB3\u4F4D\u6682\u65E0\u7269\u54C1</div>' +
-                '</div>' +
-              '</div>' +
-              // 空状态
-              '<div v-else class="empty-state">' +
-                '<div style="font-size:48px;margin-bottom:8px;">\uD83D\uDCE6</div>' +
-                '<p>\u8BF7\u4ECE\u5DE6\u4FA7\u6811\u4E2D\u9009\u62E9\u6536\u7EB3\u4F4D</p>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-          // 树形抽屉 (手机)
-          '<el-drawer v-model="showMobileTree" title="\u6536\u7EB3\u7ED3\u6784" size="80%" :with-header="true" v-if="isMobileView">' +
-            '<div class="mobile-tree-header">' +
-              '<el-button size="small" type="primary" @click="showAddHouse">+ \u623F\u5B50</el-button>' +
-            '</div>' +
-            '<el-tree ref="treeRef" :data="treeData" node-key="id" :props="{ children: \'children\', label: \'label\' }" :default-expanded-keys="expandedKeys" @node-click="onNodeClickMobile">' +
-              '<template #default="{ node, data }">' +
-                '<span class="tree-node">' +
-                  '<span class="tree-label">{{ data.label }}</span>' +
-                  '<span class="tree-actions">' +
-                    '<el-button v-if="data.type === \'house\'" size="small" link @click.stop="showAddRoom(data)">+</el-button>' +
-                    '<el-button v-if="data.type === \'room\'" size="small" link @click.stop="showAddContainer(data)">+</el-button>' +
-                    '<el-button v-if="data.type === \'container\'" size="small" link @click.stop="showAddItemFromTree(data)">+</el-button>' +
-                    '<el-button size="small" link @click.stop="editNode(data)">\u6539</el-button>' +
-                    '<el-button size="small" link type="danger" @click.stop="deleteNode(data)">\u5220</el-button>' +
-                  '</span>' +
-                '</span>' +
-              '</template>' +
-            '</el-tree>' +
-          '</el-drawer>' +
-          // 桌面侧边树
-          '<div v-if="!isMobileView" class="s-sidebar">' +
-            '<div class="s-sidebar-header">' +
-              '<span>\u6536\u7EB3\u7ED3\u6784</span>' +
-              '<el-button size="small" type="primary" @click="showAddHouse">+ \u623F\u5B50</el-button>' +
-            '</div>' +
-            '<el-tree ref="treeRef" :data="treeData" node-key="id" :props="{ children: \'children\', label: \'label\' }" :default-expanded-keys="expandedKeys" @node-click="onNodeClick" v-loading="store.loading">' +
-              '<template #default="{ node, data }">' +
-                '<span class="tree-node">' +
-                  '<span class="tree-label">{{ data.label }}</span>' +
-                  '<span class="tree-actions">' +
-                    '<el-button v-if="data.type === \'house\'" size="small" link @click.stop="showAddRoom(data)">+</el-button>' +
-                    '<el-button v-if="data.type === \'room\'" size="small" link @click.stop="showAddContainer(data)">+</el-button>' +
-                    '<el-button v-if="data.type === \'container\'" size="small" link @click.stop="showAddItemFromTree(data)">+</el-button>' +
-                    '<el-button size="small" link @click.stop="editNode(data)">\u6539</el-button>' +
-                    '<el-button size="small" link type="danger" @click.stop="deleteNode(data)">\u5220</el-button>' +
-                  '</span>' +
-                '</span>' +
-              '</template>' +
-            '</el-tree>' +
-          '</div>' +
-        '</div>' +
-        // ---------- Dialogs ----------
-        '<el-dialog v-model="houseDlg.visible" :title="houseDlg.isEdit ? \'\u7F16\u8F91\u623F\u5B50\' : \'\u6DFB\u52A0\u623F\u5B50\'" width="92%" :style="{maxWidth:\'400px\'}" :close-on-click-modal="false">' +
-          '<el-form :model="houseDlg.form" label-width="60px">' +
-            '<el-form-item label="\u540D\u79F0" required><el-input v-model="houseDlg.form.name" placeholder="\u5982\uFF1A\u671D\u9633\u533A\u81EA\u4F4F\u623F" /></el-form-item>' +
-            '<el-form-item label="\u7C7B\u578B">' +
-              '<el-select v-model="houseDlg.form.type" filterable allow-create default-first-option placeholder="\u9009\u62E9\u6216\u8F93\u5165" style="width:100%">' +
-                '<el-option v-for="t in presets.houseType" :key="t" :label="t" :value="t" />' +
-              '</el-select>' +
-            '</el-form-item>' +
-          '</el-form>' +
-          '<template #footer><el-button @click="houseDlg.visible = false">\u53D6\u6D88</el-button><el-button type="primary" @click="saveHouse" :loading="store.loading">\u786E\u8BA4</el-button></template>' +
-        '</el-dialog>' +
-        '<el-dialog v-model="roomDlg.visible" :title="roomDlg.isEdit ? \'\u7F16\u8F91\u623F\u95F4\' : \'\u6DFB\u52A0\u623F\u95F4\'" width="92%" :style="{maxWidth:\'400px\'}" :close-on-click-modal="false">' +
-          '<el-form :model="roomDlg.form" label-width="60px">' +
-            '<el-form-item label="\u540D\u79F0" required><el-input v-model="roomDlg.form.name" placeholder="\u5982\uFF1A\u4E3B\u5367" /></el-form-item>' +
-            '<el-form-item label="\u7C7B\u578B">' +
-              '<el-select v-model="roomDlg.form.type" filterable allow-create default-first-option placeholder="\u9009\u62E9\u6216\u8F93\u5165" style="width:100%">' +
-                '<el-option v-for="t in presets.roomType" :key="t" :label="t" :value="t" />' +
-              '</el-select>' +
-            '</el-form-item>' +
-          '</el-form>' +
-          '<template #footer><el-button @click="roomDlg.visible = false">\u53D6\u6D88</el-button><el-button type="primary" @click="saveRoom" :loading="store.loading">\u786E\u8BA4</el-button></template>' +
-        '</el-dialog>' +
-        '<el-dialog v-model="containerDlg.visible" :title="containerDlg.isEdit ? \'\u7F16\u8F91\u6536\u7EB3\u4F4D\' : \'\u6DFB\u52A0\u6536\u7EB3\u4F4D\'" width="92%" :style="{maxWidth:\'400px\'}" :close-on-click-modal="false">' +
-          '<el-form :model="containerDlg.form" label-width="60px">' +
-            '<el-form-item label="\u540D\u79F0" required><el-input v-model="containerDlg.form.name" placeholder="\u5982\uFF1A\u5DE6\u4FA7\u8863\u67DC" /></el-form-item>' +
-            '<el-form-item label="\u7C7B\u578B">' +
-              '<el-select v-model="containerDlg.form.type" filterable allow-create default-first-option placeholder="\u9009\u62E9\u6216\u8F93\u5165" style="width:100%">' +
-                '<el-option v-for="t in presets.containerType" :key="t" :label="t" :value="t" />' +
-              '</el-select>' +
-            '</el-form-item>' +
-          '</el-form>' +
-          '<template #footer><el-button @click="containerDlg.visible = false">\u53D6\u6D88</el-button><el-button type="primary" @click="saveContainer" :loading="store.loading">\u786E\u8BA4</el-button></template>' +
-        '</el-dialog>' +
-        '<el-dialog v-model="itemDlg.visible" :title="itemDlg.isEdit ? \'\u7F16\u8F91\u7269\u54C1\' : \'\u6DFB\u52A0\u7269\u54C1\'" width="92%" :style="{maxWidth:\'460px\'}" :close-on-click-modal="false">' +
-          '<el-form :model="itemDlg.form" label-width="60px">' +
-            '<el-form-item label="\u540D\u79F0" required><el-input v-model="itemDlg.form.name" placeholder="\u5982\uFF1A\u51AC\u5B63\u7FBD\u7ED2\u670D" /></el-form-item>' +
-            '<el-form-item label="\u5206\u7C7B">' +
-              '<el-select v-model="itemDlg.form.category" filterable allow-create default-first-option placeholder="\u9009\u62E9\u6216\u8F93\u5165" style="width:100%">' +
-                '<el-option v-for="t in presets.itemCategory" :key="t" :label="t" :value="t" />' +
-              '</el-select>' +
-            '</el-form-item>' +
-            '<el-form-item label="\u5907\u6CE8"><el-input v-model="itemDlg.form.remark" type="textarea" :rows="2" placeholder="\u5982\uFF1A\u5E26\u540A\u724C" /></el-form-item>' +
-          '</el-form>' +
-          '<template #footer><el-button @click="itemDlg.visible = false">\u53D6\u6D88</el-button><el-button type="primary" @click="saveItem" :loading="store.loading">\u786E\u8BA4</el-button></template>' +
-        '</el-dialog>' +
-      '</div>',
-    setup: function () {
-      var presets = PRESETS;
-      var currentFeature = ref(null);
-      var isMobileView = ref(isMobile());
-      var treeRef = ref(null);
-      var expandedKeys = ref([]);
-      var selectedContainerId = ref(null);
-      var searchMode = ref('text');
-      var searchQuery = ref('');
-      var searchResults = ref([]);
-      var showSearch = ref(false);
-      var searchVisible = ref(false);
-      var showMobileTree = ref(false);
+  // ==================== 标签输入组件 ====================
+  const TagInput = {
+    name: 'TagInput',
+    props: { modelValue: { type: Array, default: () => [] } },
+    emits: ['update:modelValue'],
+    template: `
+      <div>
+        <div class="tag-chips">
+          <span class="tag-chip" v-for="(tag, idx) in localTags" :key="idx">{{ tag }}<span class="tag-chip-close" @click="removeTag(idx)">×</span></span>
+        </div>
+        <el-input v-model="inputVal" placeholder="输入标签后回车" size="small" @keyup.enter="addTag" style="width:160px;" />
+        <div class="tag-suggestions" v-if="suggestions.length">
+          <span class="tag-suggestion" v-for="tag in suggestions" :key="tag.id" @click="addTagByName(tag.name)">+ {{ tag.name }}</span>
+        </div>
+      </div>
+    `,
+    data() { return { inputVal: '', localTags: this.modelValue ? this.modelValue.slice() : [] }; },
+    watch: { modelValue(v) { this.localTags = v ? v.slice() : []; } },
+    computed: {
+      suggestions() {
+        if (!store.tags) return [];
+        return store.tags.filter(t => this.localTags.indexOf(t.name) === -1);
+      },
+    },
+    methods: {
+      addTag() {
+        const v = this.inputVal.trim();
+        if (v) this.addTagByName(v);
+      },
+      addTagByName(v) {
+        if (this.localTags.indexOf(v) === -1) {
+          this.localTags.push(v); this.inputVal = ''; this.$emit('update:modelValue', this.localTags.slice());
+        }
+        if (store.tags && !store.tags.find(t => t.name === v)) {
+          store.tags.push({ id: genId(), name: v });
+        }
+      },
+      removeTag(idx) { this.localTags.splice(idx, 1); this.$emit('update:modelValue', this.localTags.slice()); },
+    },
+  };
 
-      var resizeHandler = function () { isMobileView.value = isMobile(); };
-      if (window.addEventListener) {
-        window.addEventListener('resize', resizeHandler);
+  // ==================== 图片上传组件 ====================
+  const ImageUpload = {
+    name: 'ImageUpload',
+    props: { modelValue: { type: String, default: '' } },
+    emits: ['update:modelValue'],
+    template: `
+      <div class="img-upload">
+        <div class="img-actions">
+          <el-upload accept="image/*" :auto-upload="false" :show-file-list="false" @change="onFileChange">
+            <el-button size="small" type="primary" :loading="compressing">选择图片并压缩为 WebP</el-button>
+          </el-upload>
+          <el-button v-if="localImage" size="small" @click="clear">清除图片</el-button>
+        </div>
+        <img v-if="localImage" :src="localImage" class="img-preview" />
+        <el-input v-if="localImage" v-model="localImage" type="textarea" :rows="2" placeholder="WebP base64..." size="small" style="margin-top:4px;" @change="$emit('update:modelValue', localImage)" />
+      </div>
+    `,
+    data() { return { localImage: this.modelValue || '', compressing: false }; },
+    watch: { modelValue(v) { this.localImage = v || ''; } },
+    methods: {
+      async onFileChange(file) {
+        const raw = file.raw;
+        if (!raw) return;
+        this.compressing = true;
+        try {
+          const dataUrl = await compressImageToWebP(raw);
+          this.localImage = dataUrl;
+          this.$emit('update:modelValue', dataUrl);
+        } catch (e) {
+          ElementPlus.ElMessage.error(e.message || '图片处理失败');
+        } finally { this.compressing = false; }
+      },
+      clear() { this.localImage = ''; this.$emit('update:modelValue', ''); },
+    },
+  };
+
+  // ==================== 列表管理组件 ====================
+  const ListManager = {
+    name: 'ListManager',
+    props: { title: String, items: Array, icon: String },
+    emits: ['add', 'update', 'delete'],
+    template: `
+      <div class="list-manager">
+        <div class="list-add">
+          <el-input v-model="newName" :placeholder="'新' + title" @keyup.enter="add" size="default" />
+          <el-button type="primary" size="default" @click="add">添加</el-button>
+        </div>
+        <div class="list-items">
+          <div v-for="item in items" :key="item.id" class="list-item">
+            <span v-if="editingId !== item.id" class="list-item-name">{{ item.name }}</span>
+            <el-input v-else v-model="editName" size="small" @keyup.enter="saveEdit(item)" />
+            <div class="list-item-actions">
+              <button v-if="editingId !== item.id" class="ec-act" @click="startEdit(item)" title="编辑">✏️</button>
+              <button v-else class="ec-act" @click="saveEdit(item)" title="保存">✓</button>
+              <button class="ec-act danger" @click="$emit('delete', item)" title="删除">✖️</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `,
+    data() { return { newName: '', editingId: null, editName: '' }; },
+    methods: {
+      add() { const v = this.newName.trim(); if (!v) return; this.$emit('add', v); this.newName = ''; },
+      startEdit(item) { this.editingId = item.id; this.editName = item.name; },
+      saveEdit(item) { const v = this.editName.trim(); if (!v) return; this.$emit('update', item, v); this.editingId = null; this.editName = ''; },
+    },
+  };
+
+  // ==================== 递归卡片组件 ====================
+  const CardNode = {
+    name: 'CardNode',
+    props: { entity: Object, type: String, expandedIds: Object, isRoot: { type: Boolean, default: false }, isMobileView: { type: Boolean, default: false } },
+    emits: ['toggle', 'add-room', 'add-container', 'add-box', 'add-item', 'edit', 'delete'],
+    template: `
+      <li class="card-tree-node" :class="{ 'card-tree-root': isRoot }">
+        <div class="entity-card" :class="type" :id="'card-' + entity.id" v-long-press="() => openMoveDialog(entity, type)">
+          <div class="ec-top">
+            <div class="ec-icon">{{ icon }}</div>
+            <div class="ec-title">
+              <div class="ec-name-row">
+                <span class="ec-name">{{ entity.name }}</span>
+                <span v-if="type==='box' && entity.color" class="ec-color-dot" :style="{background: entity.color}"></span>
+              </div>
+              <el-tag v-if="typeLabel" size="small" class="ec-type-tag" :type="tagType">{{ typeLabel }}</el-tag>
+            </div>
+          </div>
+          <div class="ec-tags" v-if="entity.tags && entity.tags.length">
+            <span class="ec-tag-chip" v-for="tag in visibleTags" :key="tag">#{{ tag }}</span>
+            <span v-if="entity.tags.length > 3" class="ec-more">+{{ entity.tags.length - 3 }}</span>
+          </div>
+          <div class="ec-remark" :title="entity.remark" v-if="entity.remark">{{ entity.remark }}</div>
+          <div class="ec-actions">
+            <template v-if="!isMobileView">
+              <button v-if="type !== 'item'" class="ec-act expand" @click.stop="onToggle" :title="isExpanded ? '收起' : '展开'">{{ isExpanded ? '▼' : '▶' }}</button>
+              <button v-if="type==='house'" class="ec-act" @click.stop="$emit('add-room', entity)" title="添加房间">+🚪</button>
+              <button v-if="type==='room'" class="ec-act" @click.stop="$emit('add-container', entity)" title="添加柜子">+🗄️</button>
+              <button v-if="type==='room' || type==='container' || type==='box'" class="ec-act" @click.stop="$emit('add-box', entity)" title="添加盒子">+📦</button>
+              <button v-if="type==='room' || type==='container' || type==='box'" class="ec-act" @click.stop="$emit('add-item', entity)" title="添加物品">+🏷️</button>
+              <button class="ec-act" @click.stop="$emit('edit', entity, type)" title="编辑">✏️</button>
+              <button class="ec-act danger" @click.stop="$emit('delete', entity, type)" title="删除">✖️</button>
+            </template>
+            <template v-else>
+              <button v-if="type !== 'item'" class="ec-act expand" @click.stop="onToggle" :title="isExpanded ? '收起' : '展开'">{{ isExpanded ? '▼' : '▶' }}</button>
+              <el-dropdown trigger="click" @command="onAction">
+                <button class="ec-act" @click.stop title="操作">⚙️</button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="type==='house'" command="add-room">+ 添加房间</el-dropdown-item>
+                    <el-dropdown-item v-if="type==='room'" command="add-container">+ 添加柜子</el-dropdown-item>
+                    <el-dropdown-item v-if="type==='room' || type==='container' || type==='box'" command="add-box">+ 添加盒子</el-dropdown-item>
+                    <el-dropdown-item v-if="type==='room' || type==='container' || type==='box'" command="add-item">+ 添加物品</el-dropdown-item>
+                    <el-dropdown-item command="edit">✏️ 编辑</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>✖️ 删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+          </div>
+          <div class="children-preview" v-if="childNodes.length">
+            <div class="preview-title">下级列表（{{ childNodes.length }}）</div>
+            <div class="preview-list">
+              <div class="preview-item" v-for="child in previewChildren" :key="child.entity.id">
+                <span>{{ getIcon(child.type) }}</span>
+                <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ child.entity.name }}</span>
+                <el-tag size="small" :type="child.type==='house'?'warning':child.type==='room'?'':child.type==='container'?'success':child.type==='box'?'info':'danger'">{{ getEntityTypeName(child.type) }}</el-tag>
+              </div>
+              <div v-if="childNodes.length > previewLimit" class="preview-more">还有 {{ childNodes.length - previewLimit }} 个...</div>
+            </div>
+          </div>
+        </div>
+        <ul class="tree-children" v-if="type !== 'item' && isExpanded && childNodes.length">
+          <card-node v-for="child in childNodes" :key="child.entity.id" :entity="child.entity" :type="child.type" :expanded-ids="expandedIds" :is-root="false" :is-mobile-view="isMobileView"
+            @toggle="$emit('toggle', $event)"
+            @add-room="$emit('add-room', $event)"
+            @add-container="$emit('add-container', $event)"
+            @add-box="$emit('add-box', $event)"
+            @add-item="$emit('add-item', $event)"
+            @edit="(e,t) => $emit('edit', e, t)"
+            @delete="(e,t) => $emit('delete', e, t)" />
+        </ul>
+      </li>
+    `,
+    setup(props, { emit }) {
+      const icon = computed(() => getIcon(props.type));
+      const typeLabel = computed(() => getTypeLabel(props.entity, props.type));
+      const isExpanded = computed(() => props.expandedIds.has(props.entity.id));
+      const childNodes = computed(() => getChildren(props.entity, props.type));
+      const tagType = computed(() => {
+        const map = { house: 'warning', room: '', container: 'success', box: 'info', item: 'danger' };
+        return map[props.type];
+      });
+      const visibleTags = computed(() => (props.entity.tags || []).slice(0, 3));
+      const previewLimit = 8;
+      const previewChildren = computed(() => childNodes.value.slice(0, previewLimit));
+      function onToggle() { emit('toggle', props.entity.id); }
+      function onAction(cmd) {
+        if (cmd === 'add-room') emit('add-room', props.entity);
+        else if (cmd === 'add-container') emit('add-container', props.entity);
+        else if (cmd === 'add-box') emit('add-box', props.entity);
+        else if (cmd === 'add-item') emit('add-item', props.entity);
+        else if (cmd === 'edit') emit('edit', props.entity, props.type);
+        else if (cmd === 'delete') emit('delete', props.entity, props.type);
+      }
+      return { icon, typeLabel, isExpanded, childNodes, tagType, visibleTags, previewLimit, previewChildren, onToggle, onAction, getIcon, getEntityTypeName };
+    },
+  };
+
+  // ==================== 主应用 ====================
+  const MainApp = {
+    components: { CardNode, TagInput, ImageUpload, ListManager },
+    template: `
+      <div>
+        <!-- 主菜单 -->
+        <div v-if="!currentFeature" class="menu-page">
+          <div class="menu-header">
+            <div class="menu-avatar">🌸</div>
+            <h1>小花与小风</h1>
+            <p class="menu-subtitle">您的家庭数字助手</p>
+          </div>
+          <div class="menu-grid">
+            <div class="menu-card" @click="enterFeature('storage')">
+              <div class="menu-card-icon">🏠</div>
+              <div style="flex:1"><div class="menu-card-title">家庭收纳管理</div><div class="menu-card-desc">小窝 · 房间 · 柜子 · 盒子 · 物品</div></div>
+            </div>
+          </div>
+          <div class="menu-footer">
+            <el-button text size="large" @click="logout" style="font-size:16px;color:#fff;">👋 拜拜~</el-button>
+          </div>
+        </div>
+
+        <!-- 收纳管理 -->
+        <div v-else class="storage-page blueprint-bg">
+          <div class="s-header">
+            <button class="s-back" @click="currentFeature = null" title="返回主菜单">←</button>
+            <span class="s-header-title">家庭收纳管理</span>
+            <div class="s-header-right">
+              <span class="sync-status" :title="syncStatusText">{{ syncStatusText }}</span>
+              <button class="s-header-btn" @click="manualSync" title="立即保存同步">🔄</button>
+              <button class="s-header-btn" v-if="isLocalMode()" :class="{active: store.useGitHub}" @click="toggleUseGitHub" :title="store.useGitHub ? '已开启 GitHub 同步' : '已关闭 GitHub 同步'">☁️</button>
+              <button class="s-header-btn danger" @click="showClearDialog" title="清空 GitHub 数据">🗑️</button>
+              <button class="s-header-btn s-header-btn-text" @click="showManageDialog('category')" title="类别管理">🏷️ <span>类别</span></button>
+              <button class="s-header-btn s-header-btn-text" @click="showManageDialog('tag')" title="标签管理">🔖 <span>标签</span></button>
+              <button class="s-header-btn" :class="{active: searchVisible}" @click="toggleSearch" title="搜索">🔍</button>
+              <button class="s-header-btn" @click="showMobileTree = true" v-if="isMobileView" title="目录树">☰</button>
+              <button class="s-header-btn" :class="{active: !sidebarCollapsed}" @click="sidebarCollapsed = !sidebarCollapsed" v-else title="目录树">☰</button>
+            </div>
+          </div>
+
+          <div v-if="searchVisible" class="search-bar">
+            <el-input v-model="searchQuery" placeholder="搜索名称、备注..." size="small" clearable @keyup.enter="doSearch" />
+            <el-button size="small" type="primary" @click="doSearch">搜索</el-button>
+            <el-button size="small" @click="closeSearch">关闭</el-button>
+          </div>
+
+          <div class="s-body">
+            <div v-if="!isMobileView && !sidebarCollapsed" class="sidebar">
+              <div class="sidebar-header"><span>收纳结构</span><el-button size="small" type="primary" @click="showAddHouse">+小窝</el-button></div>
+              <el-tree ref="desktopTreeRef" :data="treeData" node-key="id" :props="{ children: 'children', label: 'label' }" :default-expanded-keys="allExpandedKeys" @node-click="onTreeNodeClick" draggable :allow-drag="allowTreeDrag" :allow-drop="allowTreeDrop" @node-drop="handleTreeDrop" v-loading="store.loading" highlight-current>
+                <template #default="{ data }">
+                  <span class="tree-node" v-long-press="() => openMoveDialog(data.entity, data.type)">
+                    <span class="tree-label">{{ data.label }}</span>
+                    <span class="tree-actions">
+                      <button v-if="data.type==='house'" class="tree-act-btn" @click.stop="showAddRoom(data)" title="添加房间">+🚪</button>
+                      <button v-if="data.type==='room'" class="tree-act-btn" @click.stop="onTreeAddContainer(data)" title="添加柜子">+🗄️</button>
+                      <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddBox(data)" title="添加盒子">+📦</button>
+                      <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddItem(data)" title="添加物品">+🏷️</button>
+                      <button class="tree-act-btn" @click.stop="editFromTree(data)" title="编辑">✏️</button>
+                      <button class="tree-act-btn danger" @click.stop="deleteFromTree(data)" title="删除">✖️</button>
+                    </span>
+                  </span>
+                </template>
+              </el-tree>
+            </div>
+
+            <div class="card-area" :class="spacingClass" ref="cardAreaRef" :style="{ '--zoom': zoom }">
+              <div class="zoom-controls">
+                <button class="zoom-btn" @click="zoomOut" title="缩小">−</button>
+                <span class="zoom-level">{{ zoomPercent }}%</span>
+                <button class="zoom-btn" @click="zoomIn" title="放大">+</button>
+                <button class="zoom-btn" @click="zoomReset" title="重置">⟲</button>
+                <button class="zoom-btn" @click="toggleSpacing" :title="compactMode ? '切换宽松间距' : '切换紧凑间距'">{{ compactMode ? '紧凑' : '宽松' }}</button>
+              </div>
+              <div class="zoom-container">
+                <div v-if="showSearch" class="search-results">
+                  <div v-if="searchResults.length===0" style="color:#c48a9c;text-align:center;padding:48px 16px;font-size:14px;">没有找到相关内容</div>
+                  <div v-for="(r,idx) in searchResults" :key="idx" class="search-item" @click="navToSearchResult(r)">
+                    <div class="search-name">{{ r.name }}</div>
+                    <div class="search-path">{{ r.path }}</div>
+                    <div class="search-meta">
+                      <el-tag size="small" :type="r.type==='house'?'warning':r.type==='room'?'':r.type==='container'?'success':r.type==='box'?'info':'danger'">{{ getEntityTypeName(r.type) }}</el-tag>
+                      <el-tag v-if="r.entity.category" size="small">{{ r.entity.category }}</el-tag>
+                      <el-tag v-if="r.entity.type" size="small">{{ r.entity.type }}</el-tag>
+                    </div>
+                  </div>
+                </div>
+                <div v-else>
+                  <div v-if="store.houses.length===0" class="card-area-empty">
+                    <div style="font-size:52px;">🏠</div>
+                    <p>还没有小窝，点击左侧「+小窝」开始吧</p>
+                  </div>
+                  <ul v-else class="card-tree">
+                    <card-node v-for="house in store.houses" :key="house.id" :entity="house" type="house" :expanded-ids="expandedIds" :is-root="true" :is-mobile-view="isMobileView"
+                      @toggle="toggleExpand"
+                      @add-room="showAddRoomForHouse"
+                      @add-container="showAddContainer"
+                      @add-box="showAddBox"
+                      @add-item="showAddItem"
+                      @edit="editEntity"
+                      @delete="deleteEntity" />
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <el-drawer v-model="showMobileTree" title="收纳结构" size="75%" v-if="isMobileView">
+            <div style="margin-bottom:12px;"><el-button size="small" type="primary" @click="showAddHouse(); showMobileTree=false;">+小窝</el-button></div>
+            <el-tree ref="mobileTreeRef" :data="treeData" node-key="id" :props="{ children: 'children', label: 'label' }" :default-expanded-keys="allExpandedKeys" @node-click="onMobileTreeNodeClick" draggable :allow-drag="allowTreeDrag" :allow-drop="allowTreeDrop" @node-drop="handleTreeDrop">
+              <template #default="{ data }">
+                <span class="tree-node" v-long-press="() => openMoveDialog(data.entity, data.type)">
+                  <span class="tree-label">{{ data.label }}</span>
+                  <span class="tree-actions">
+                    <button v-if="data.type==='house'" class="tree-act-btn" @click.stop="showAddRoom(data); showMobileTree=false;" title="添加房间">+🚪</button>
+                    <button v-if="data.type==='room'" class="tree-act-btn" @click.stop="onTreeAddContainer(data); showMobileTree=false;" title="添加柜子">+🗄️</button>
+                    <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddBox(data); showMobileTree=false;" title="添加盒子">+📦</button>
+                    <button v-if="data.type==='room'||data.type==='container'||data.type==='box'" class="tree-act-btn" @click.stop="onTreeAddItem(data); showMobileTree=false;" title="添加物品">+🏷️</button>
+                    <button class="tree-act-btn" @click.stop="editFromTree(data); showMobileTree=false;" title="编辑">✏️</button>
+                    <button class="tree-act-btn danger" @click.stop="deleteFromTree(data); showMobileTree=false;" title="删除">✖️</button>
+                  </span>
+                </span>
+              </template>
+            </el-tree>
+          </el-drawer>
+        </div>
+
+        <!-- 调整归属弹窗 -->
+        <el-dialog v-model="moveDialog.visible" title="调整归属" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
+          <p style="margin-bottom:12px;color:#5a3a47;">将 <b>{{ getIcon(moveDialog.type) }} {{ moveDialog.entity?.name }}</b> 移动到：</p>
+          <el-radio-group v-model="moveDialog.selectedParentId" style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto;">
+            <el-radio v-for="c in moveDialog.candidates" :key="c.id" :label="c.id" style="align-items:flex-start;margin:0;">
+              <span :style="{display:'inline-block',paddingLeft:(c.depth*16)+'px',maxWidth:'100%',overflowWrap:'break-word'}">{{ getIcon(c.type) }} {{ c.name }}</span>
+            </el-radio>
+          </el-radio-group>
+          <template #footer><el-button @click="moveDialog.visible=false">取消</el-button><el-button type="primary" @click="confirmMove" :loading="store.loading">确认</el-button></template>
+        </el-dialog>
+
+        <!-- 清空 GitHub 数据弹窗 -->
+        <el-dialog v-model="clearDialog.visible" title="清空 GitHub 数据" width="92%" :style="{maxWidth:'360px'}" :close-on-click-modal="false">
+          <p style="color:#f56c6c;margin-bottom:12px;">⚠️ 此操作会删除 GitHub 上的 inventory.json 文件，并清空本地数据，不可恢复！</p>
+          <p style="margin-bottom:8px;">请输入 <b>delete</b> 确认：</p>
+          <el-input v-model="clearDialog.confirmText" placeholder="delete" />
+          <template #footer><el-button @click="clearDialog.visible=false">取消</el-button><el-button type="danger" @click="doClearGitHub" :loading="store.loading">确认清空</el-button></template>
+        </el-dialog>
+
+        <!-- 类别 / 标签管理弹窗 -->
+        <el-dialog v-model="manageDialog.visible" :title="manageDialog.type==='category'?'类别管理':'标签管理'" width="92%" :style="{maxWidth:'500px'}" :close-on-click-modal="false">
+          <div class="manage-dialog-body">
+            <list-manager v-if="manageDialog.type==='category'" title="类别" icon="🏷️" :items="store.categories" @add="addCategory" @update="updateCategory" @delete="deleteCategory" />
+            <list-manager v-else title="标签" icon="🔖" :items="store.tags" @add="addTag" @update="updateTag" @delete="deleteTag" />
+          </div>
+        </el-dialog>
+
+        <!-- ===== DIALOGS ===== -->
+        <el-dialog v-model="hd.visible" :title="hd.isEdit?'编辑小窝':'添加小窝'" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
+          <el-form :model="hd.form" label-width="60px">
+            <el-form-item label="名称" required><el-input v-model="hd.form.name" placeholder="如：我们的小窝" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="hd.form.remark" type="textarea" :rows="2" /></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="hd.visible=false">取消</el-button><el-button type="primary" @click="saveHouse" :loading="store.loading">确认</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="rd.visible" :title="rd.isEdit?'编辑房间':'添加房间'" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
+          <el-form :model="rd.form" label-width="60px">
+            <el-form-item label="名称" required><el-input v-model="rd.form.name" placeholder="如：主卧" /></el-form-item>
+            <el-form-item label="类型"><el-select v-model="rd.form.type" filterable allow-create default-first-option style="width:100%"><el-option v-for="t in presets.roomType" :key="t" :label="t" :value="t" /></el-select></el-form-item>
+            <el-form-item label="标签"><tag-input v-model="rd.form.tags" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="rd.form.remark" type="textarea" :rows="2" /></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="rd.visible=false">取消</el-button><el-button type="primary" @click="saveRoom" :loading="store.loading">确认</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="cd.visible" :title="cd.isEdit?'编辑柜子':'添加柜子'" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
+          <el-form :model="cd.form" label-width="60px">
+            <el-form-item label="名称" required><el-input v-model="cd.form.name" placeholder="如：衣柜" /></el-form-item>
+            <el-form-item label="类型"><el-select v-model="cd.form.type" filterable allow-create default-first-option style="width:100%"><el-option v-for="t in presets.containerType" :key="t" :label="t" :value="t" /></el-select></el-form-item>
+            <el-form-item label="标签"><tag-input v-model="cd.form.tags" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="cd.form.remark" type="textarea" :rows="2" /></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="cd.visible=false">取消</el-button><el-button type="primary" @click="saveContainer" :loading="store.loading">确认</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="bd.visible" :title="bd.isEdit?'编辑盒子':'添加盒子'" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
+          <el-form :model="bd.form" label-width="60px">
+            <el-form-item label="名称" required><el-input v-model="bd.form.name" placeholder="如：零食盒" /></el-form-item>
+            <el-form-item label="颜色">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div v-for="c in presets.boxColors" :key="c" :style="{width:28+'px',height:28+'px',borderRadius:'50%',background:c,cursor:'pointer',border:bd.form.color===c?'3px solid #5a3a47':'2px solid #ffd6e0',boxShadow:bd.form.color===c?'0 0 6px rgba(0,0,0,0.3)':'none'}" @click="bd.form.color=c"></div>
+              </div>
+            </el-form-item>
+            <el-form-item label="标签"><tag-input v-model="bd.form.tags" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="bd.form.remark" type="textarea" :rows="2" /></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="bd.visible=false">取消</el-button><el-button type="primary" @click="saveBox" :loading="store.loading">确认</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="id2.visible" :title="id2.isEdit?'编辑物品':'添加物品'" width="92%" :style="{maxWidth:'460px'}" :close-on-click-modal="false">
+          <el-form :model="id2.form" label-width="60px">
+            <el-form-item label="名称" required><el-input v-model="id2.form.name" placeholder="如：冬季羽绒服" /></el-form-item>
+            <el-form-item label="分类"><el-select v-model="id2.form.category" filterable allow-create default-first-option style="width:100%" @change="onCategoryChange"><el-option v-for="t in store.categories" :key="t.id" :label="t.name" :value="t.name" /></el-select></el-form-item>
+            <el-form-item label="标签"><tag-input v-model="id2.form.tags" /></el-form-item>
+            <el-form-item label="图片"><image-upload v-model="id2.form.image" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="id2.form.remark" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item v-if="id2.isEdit" label="创建"><span style="font-size:13px;color:#c48a9c;">{{ formatTime(id2.form.createTime) }}</span></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="id2.visible=false">取消</el-button><el-button type="primary" @click="saveItem" :loading="store.loading">确认</el-button></template>
+        </el-dialog>
+      </div>
+    `,
+    setup() {
+      const presets = PRESETS;
+      const currentFeature = ref(null);
+      const isMobileView = ref(isMobile());
+      const desktopTreeRef = ref(null);
+      const mobileTreeRef = ref(null);
+      const expandedIds = reactive(new Set());
+      const searchVisible = ref(false);
+      const searchQuery = ref('');
+      const searchResults = ref([]);
+      const showSearch = ref(false);
+      const showMobileTree = ref(false);
+      const sidebarCollapsed = ref(false);
+      const cardAreaRef = ref(null);
+      const zoom = ref(1);
+      const compactMode = ref(true);
+      const manageDialog = reactive({ visible: false, type: 'category' });
+      const moveDialog = reactive({ visible: false, entity: null, type: '', candidates: [], selectedParentId: '' });
+      const clearDialog = reactive({ visible: false, confirmText: '' });
+
+      window.addEventListener('resize', () => { isMobileView.value = isMobile(); });
+
+      let syncTimer = null;
+      function startAutoSync() { stopAutoSync(); syncTimer = setInterval(() => { if (store.dirty) syncToGitHub(); }, 30000); }
+      function stopAutoSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
+      startAutoSync();
+      window.addEventListener('beforeunload', (e) => {
+        if (store.dirty) { e.preventDefault(); e.returnValue = '还有未同步的更改，确定要离开吗？'; }
+      });
+
+      function toggleUseGitHub() {
+        store.useGitHub = !store.useGitHub;
+        saveUseGitHubSetting();
+        ElementPlus.ElMessage.info(store.useGitHub ? '已开启 GitHub 同步' : '已关闭 GitHub 同步，仅使用本地数据');
+        if (store.useGitHub) syncToGitHub();
+      }
+      function manualSync() { syncToGitHub(); }
+      function showClearDialog() { clearDialog.confirmText = ''; clearDialog.visible = true; }
+      async function doClearGitHub() {
+        if (clearDialog.confirmText !== 'delete') { ElementPlus.ElMessage.warning('请输入 delete 确认清空'); return; }
+        await clearGitHubFile();
+        clearDialog.visible = false;
       }
 
-      var houseDlg = reactive({ visible: false, isEdit: false, form: { name: '', type: '' }, editId: null });
-      var roomDlg = reactive({ visible: false, isEdit: false, form: { name: '', type: '' }, editId: null, parentHouse: null });
-      var containerDlg = reactive({ visible: false, isEdit: false, form: { name: '', type: '' }, editId: null, parentRoom: null });
-      var itemDlg = reactive({ visible: false, isEdit: false, form: { name: '', category: '', remark: '' }, editItemData: null, parentContainer: null });
-
-      var treeData = computed(function () { return buildTreeData(store.houses); });
-      var selectedContainer = computed(function () {
-        if (!selectedContainerId.value) return null;
-        return findContainerById(store.houses, selectedContainerId.value);
+      const zoomPercent = computed(() => Math.round(zoom.value * 100));
+      const spacingClass = computed(() => compactMode.value ? 'compact' : 'comfortable');
+      const syncStatusText = computed(() => {
+        if (store.syncError) return '⚠️ 同步失败';
+        if (store.loading) return '🔄 同步中...';
+        if (store.dirty) return '💾 有未同步更改';
+        if (store.lastSync) return '✅ 已同步';
+        return '📂 已加载本地';
       });
-      var currentContainerPath = computed(function () {
-        if (!selectedContainerId.value) return '';
-        return getContainerPath(store.houses, selectedContainerId.value);
+      function zoomIn() { zoom.value = Math.min(zoom.value + 0.1, 2); }
+      function zoomOut() { zoom.value = Math.max(zoom.value - 0.1, 0.5); }
+      function zoomReset() { zoom.value = 1; }
+      function toggleSpacing() { compactMode.value = !compactMode.value; }
+
+      function allowTreeDrag(node) { return true; }
+      function allowTreeDrop(dragNode, dropNode, type) {
+        const dragType = dragNode.data.type;
+        const dropType = dropNode.data.type;
+        if (dragNode.data.entity.id === dropNode.data.entity.id) return false;
+        if (type === 'inner') {
+          if (!canContain(dropType, dragType)) return false;
+          if (dragType === 'box' && dropType === 'box' && containsEntity(dragNode.data.entity, 'box', dropNode.data.entity.id)) return false;
+          return true;
+        }
+        if (type === 'before' || type === 'after') return dragType === dropType;
+        return false;
+      }
+      function containsEntity(parent, parentType, targetId) {
+        for (const key of (CHILD_KEYS[parentType] || [])) {
+          for (const child of (parent[key] || [])) {
+            if (child.id === targetId) return true;
+            if (containsEntity(child, keyToType(key), targetId)) return true;
+          }
+        }
+        return false;
+      }
+      function handleTreeDrop(dragNode, dropNode, dropType) {
+        const dragType = dragNode.data.type;
+        const dropTypeVal = dropNode.data.type;
+        const dragEntity = dragNode.data.entity;
+        const dropEntity = dropNode.data.entity;
+        if (dropType === 'inner') {
+          moveEntityToParent(dragEntity, dragType, dropEntity, dropTypeVal);
+        } else {
+          moveEntityBeforeAfter(dragEntity, dragType, dropEntity, dropTypeVal, dropType);
+        }
+        nextTick(() => { expandedIds.add(dropEntity.id); markDirty(); });
+      }
+      function moveEntityToParent(entity, type, target, targetType) {
+        const dragInfo = findEntityParent(entity, type);
+        if (!dragInfo) return;
+        dragInfo.array.splice(dragInfo.index, 1);
+        const key = childKeyFor(type);
+        const arr = target[key] || (target[key] = []);
+        arr.push(entity);
+      }
+      function moveEntityBeforeAfter(entity, type, targetEntity, targetType, position) {
+        const dragInfo = findEntityParent(entity, type);
+        const dropInfo = findEntityParent(targetEntity, targetType);
+        if (!dragInfo || !dropInfo) return;
+        let insertIndex = dropInfo.index;
+        const sameArray = dragInfo.array === dropInfo.array;
+        if (sameArray && dragInfo.index < insertIndex) {
+          if (position === 'before') insertIndex--;
+        } else {
+          if (position === 'after') insertIndex++;
+        }
+        dragInfo.array.splice(dragInfo.index, 1);
+        dropInfo.array.splice(insertIndex, 0, entity);
+      }
+
+      function collectMoveCandidates(entity, type) {
+        const list = [];
+        function add(e, t, depth) {
+          if (canContain(t, type) && (!entity || e.id !== entity.id)) {
+            list.push({ id: e.id, name: e.name, type: t, depth, entity: e });
+          }
+        }
+        function walkBoxes(boxes, depth) {
+          (boxes || []).forEach(b => {
+            add(b, 'box', depth);
+            walkBoxes(b.boxes, depth + 1);
+          });
+        }
+        if (type === 'room') {
+          store.houses.forEach(h => add(h, 'house', 0));
+        } else if (type === 'container') {
+          store.houses.forEach(h => (h.rooms || []).forEach(r => add(r, 'room', 1)));
+        } else if (type === 'box' || type === 'item') {
+          store.houses.forEach(h => {
+            (h.rooms || []).forEach(r => {
+              add(r, 'room', 1);
+              (r.containers || []).forEach(c => {
+                add(c, 'container', 2);
+                walkBoxes(c.boxes, 3);
+              });
+              walkBoxes(r.boxes, 2);
+            });
+          });
+        }
+        if (entity && (type === 'box' || type === 'item')) {
+          const descendantIds = new Set();
+          function collectDescendants(e, t) {
+            (CHILD_KEYS[t] || []).forEach(key => {
+              (e[key] || []).forEach(child => {
+                descendantIds.add(child.id);
+                collectDescendants(child, keyToType(key));
+              });
+            });
+          }
+          collectDescendants(entity, type);
+          return list.filter(c => !descendantIds.has(c.id));
+        }
+        return list;
+      }
+      function openMoveDialog(entity, type) {
+        if (type === 'house') return;
+        moveDialog.entity = entity;
+        moveDialog.type = type;
+        moveDialog.candidates = collectMoveCandidates(entity, type);
+        const current = findEntityParent(entity, type);
+        moveDialog.selectedParentId = current && current.parent !== store ? current.parent.id : '';
+        moveDialog.visible = true;
+      }
+      function confirmMove() {
+        const candidate = moveDialog.candidates.find(c => c.id === moveDialog.selectedParentId);
+        if (!candidate || !moveDialog.entity) { moveDialog.visible = false; return; }
+        const current = findEntityParent(moveDialog.entity, moveDialog.type);
+        if (current && current.parent === candidate.entity) { moveDialog.visible = false; return; }
+        moveEntityToParent(moveDialog.entity, moveDialog.type, candidate.entity, candidate.type);
+        moveDialog.visible = false;
+        nextTick(() => { expandedIds.add(candidate.id); markDirty(); });
+      }
+
+      const hd = reactive({ visible: false, isEdit: false, form: { name: '', remark: '' }, editId: null });
+      const rd = reactive({ visible: false, isEdit: false, form: { name: '', type: '', tags: [], remark: '' }, editId: null, parentHouse: null });
+      const cd = reactive({ visible: false, isEdit: false, form: { name: '', type: '', tags: [], remark: '' }, editId: null, parentRoom: null });
+      const bd = reactive({ visible: false, isEdit: false, form: { name: '', color: '', tags: [], remark: '' }, editId: null, parentObj: null });
+      const id2 = reactive({ visible: false, isEdit: false, form: { name: '', category: '', tags: [], image: '', remark: '', createTime: null }, editId: null, parentObj: null, editItemData: null });
+
+      function buildTreeNode(entity, type) {
+        const label = entity.name;
+        const node = { id: type + '-' + entity.id, label, type, origId: entity.id, entity, children: [] };
+        getChildren(entity, type).forEach(ch => node.children.push(buildTreeNode(ch.entity, ch.type)));
+        return node;
+      }
+
+      const treeData = computed(() => store.houses.map(h => buildTreeNode(h, 'house')));
+      const allExpandedKeys = computed(() => {
+        const keys = [];
+        (function collect(nodes) { nodes.forEach(n => { keys.push(n.id); collect(n.children || []); }); })(treeData.value);
+        return keys;
       });
 
-      // ---- 生命周期 ----
-      onMounted(function () {
-        store.loading = true;
-        fetchData().then(function () {
-          store.loading = false;
-        }).catch(function () {
-          store.loading = false;
-        });
-      });
-
-      // ---- 功能入口 ----
       function enterFeature(name) {
         currentFeature.value = name;
         if (name === 'storage') {
-          fetchData();
+          fetchData().then(() => { store.houses.forEach(h => expandedIds.add(h.id)); });
         }
       }
 
-      // ---- 搜索 ----
-      function focusSearch() {
-        searchVisible.value = !searchVisible.value;
-        if (!searchVisible.value) { showSearch.value = false; searchQuery.value = ''; }
+      function showManageDialog(type) { manageDialog.type = type; manageDialog.visible = true; }
+
+      function toggleExpand(id) {
+        expandedIds.has(id) ? expandedIds.delete(id) : expandedIds.add(id);
       }
+
+      function toggleSearch() {
+        searchVisible.value = !searchVisible.value;
+        if (!searchVisible.value) closeSearch();
+      }
+      function closeSearch() { searchVisible.value = false; showSearch.value = false; searchResults.value = []; searchQuery.value = ''; }
+
       function doSearch() {
-        if (!searchQuery.value) { searchResults.value = []; showSearch.value = false; return; }
-        searchResults.value = searchData(store.houses, searchQuery.value, searchMode.value);
+        if (!searchQuery.value.trim()) { searchResults.value = []; showSearch.value = false; return; }
+        const q = searchQuery.value.trim().toLowerCase();
+        const results = [];
+        function traverse(entity, type, path) {
+          const fp = path.concat([entity]);
+          const pathStr = fp.map(e => e.name).join(' › ');
+          const name = (entity.name || '').toLowerCase();
+          const remark = (entity.remark || '').toLowerCase();
+          let match = name.indexOf(q) !== -1 || remark.indexOf(q) !== -1;
+          if (match) results.push({ entity, type, name: entity.name, path: pathStr });
+          getChildren(entity, type).forEach(ch => traverse(ch.entity, ch.type, fp));
+        }
+        store.houses.forEach(h => traverse(h, 'house', []));
+        searchResults.value = results;
         showSearch.value = true;
       }
+
       function navToSearchResult(r) {
-        selectedContainerId.value = r.container.id;
-        showSearch.value = false;
-        searchVisible.value = false;
-        searchQuery.value = '';
-        var tid = 'c-' + r.container.id;
-        expandedKeys.value = findTreeParents(treeData.value, tid);
-        nextTick(function () { if (treeRef.value) treeRef.value.setCurrentKey(tid); });
+        closeSearch();
+        expandToEntity(r.entity.id);
+        nextTick(() => {
+          const el = document.getElementById('card-' + r.entity.id);
+          if (el) {
+            el.classList.add('highlight');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+            setTimeout(() => el.classList.remove('highlight'), 2300);
+          }
+        });
       }
 
-      // ---- 树节点点击 ----
-      function onNodeClick(data) {
-        if (data.type === 'container') { selectedContainerId.value = data.origId; showSearch.value = false; searchVisible.value = false; }
-      }
-      function onNodeClickMobile(data) {
-        onNodeClick(data);
-        if (data.type === 'container') showMobileTree.value = false;
+      function expandToEntity(targetId) {
+        expandedIds.clear();
+        for (const h of store.houses) {
+          expandedIds.add(h.id);
+          if (h.id === targetId) return;
+          for (const r of (h.rooms || [])) {
+            expandedIds.add(r.id);
+            if (r.id === targetId) return;
+            if (findInRoom(r, targetId)) return;
+          }
+        }
       }
 
-      // ---- House ----
-      function showAddHouse() { houseDlg.isEdit = false; houseDlg.editId = null; houseDlg.form = { name: '', type: '' }; houseDlg.visible = true; }
+      function findInRoom(room, targetId) {
+        for (const c of (room.containers || [])) { expandedIds.add(c.id); if (c.id === targetId) return true; if (findInBoxLike(c, targetId)) return true; }
+        for (const b of (room.boxes || [])) { expandedIds.add(b.id); if (b.id === targetId) return true; if (findInBoxLike(b, targetId)) return true; }
+        for (const i of (room.items || [])) { if (i.id === targetId) return true; }
+        return false;
+      }
+
+      function findInBoxLike(parent, targetId) {
+        for (const b of (parent.boxes || [])) { expandedIds.add(b.id); if (b.id === targetId) return true; if (findInBoxLike(b, targetId)) return true; }
+        for (const i of (parent.items || [])) { if (i.id === targetId) return true; }
+        return false;
+      }
+
+      function onTreeNodeClick(data) { closeSearch(); expandToEntity(data.origId); }
+      function onMobileTreeNodeClick(data) { onTreeNodeClick(data); showMobileTree.value = false; }
+
+      function onTreeAddContainer(data) { showAddContainer(data.entity); }
+      function onTreeAddBox(data) { showAddBox(data.entity); }
+      function onTreeAddItem(data) { showAddItem(data.entity); }
+
+      // ===== Category / Tag management =====
+      function addCategory(name) { store.categories.push({ id: genId(), name }); markDirty(); }
+      function updateCategory(item, name) { item.name = name; markDirty(); }
+      function deleteCategory(item) { ElementPlus.ElMessageBox.confirm('确定删除类别「' + item.name + '」吗？', '确认删除', { type: 'warning' }).then(() => { removeFromArray(store.categories, item.id); markDirty(); }).catch(() => {}); }
+
+      function addTag(name) { store.tags.push({ id: genId(), name }); markDirty(); }
+      function updateTag(item, name) { item.name = name; markDirty(); }
+      function deleteTag(item) { ElementPlus.ElMessageBox.confirm('确定删除标签「' + item.name + '」吗？', '确认删除', { type: 'warning' }).then(() => { removeFromArray(store.tags, item.id); markDirty(); }).catch(() => {}); }
+
+      function onCategoryChange(val) {
+        if (val && !store.categories.find(c => c.name === val)) {
+          store.categories.push({ id: genId(), name: val });
+        }
+      }
+
+      // ===== House =====
+      function showAddHouse() { hd.isEdit = false; hd.editId = null; hd.form = { name: '', remark: '' }; hd.visible = true; }
       function saveHouse() {
-        if (!houseDlg.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
-        if (houseDlg.isEdit) {
-          for (var i = 0; i < store.houses.length; i++) { if (store.houses[i].id === houseDlg.editId) { store.houses[i].name = houseDlg.form.name; store.houses[i].type = houseDlg.form.type; break; } }
+        if (!hd.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
+        if (hd.isEdit) {
+          const h = store.houses.find(x => x.id === hd.editId);
+          if (h) { h.name = hd.form.name; h.remark = hd.form.remark || ''; }
         } else {
-          store.houses.push({ id: genId(), name: houseDlg.form.name, type: houseDlg.form.type || 'apartment', rooms: [] });
+          const nh = { id: genId(), name: hd.form.name, remark: hd.form.remark || '', rooms: [] };
+          store.houses.push(nh); expandedIds.add(nh.id);
         }
-        houseDlg.visible = false; saveToGitHub();
+        hd.visible = false; markDirty();
       }
 
-      // ---- Room ----
-      function showAddRoom(treeHouseNode) { roomDlg.isEdit = false; roomDlg.editId = null; roomDlg.parentHouse = treeHouseNode.data; roomDlg.form = { name: '', type: '' }; roomDlg.visible = true; }
+      // ===== Room =====
+      function showAddRoom(treeData) { showAddRoomForHouse(treeData.entity); }
+      function showAddRoomForHouse(house) { rd.isEdit = false; rd.editId = null; rd.parentHouse = house; rd.form = { name: '', type: '', tags: [], remark: '' }; rd.visible = true; }
       function saveRoom() {
-        if (!roomDlg.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
-        if (!roomDlg.parentHouse) { ElementPlus.ElMessage.error('未指定所属房子'); return; }
-        if (roomDlg.isEdit) {
-          var rooms = roomDlg.parentHouse.rooms || [];
-          for (var i = 0; i < rooms.length; i++) { if (rooms[i].id === roomDlg.editId) { rooms[i].name = roomDlg.form.name; rooms[i].type = roomDlg.form.type; break; } }
+        if (!rd.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
+        if (!rd.parentHouse) return;
+        ensureArray(rd.parentHouse, 'rooms');
+        if (rd.isEdit) {
+          const r = rd.parentHouse.rooms.find(x => x.id === rd.editId);
+          if (r) { r.name = rd.form.name; r.type = rd.form.type || ''; r.tags = rd.form.tags || []; r.remark = rd.form.remark || ''; }
         } else {
-          if (!roomDlg.parentHouse.rooms) roomDlg.parentHouse.rooms = [];
-          roomDlg.parentHouse.rooms.push({ id: genId(), name: roomDlg.form.name, type: roomDlg.form.type || 'bedroom', containers: [] });
+          rd.parentHouse.rooms.push({ id: genId(), name: rd.form.name, type: rd.form.type || '', tags: rd.form.tags || [], remark: rd.form.remark || '', containers: [], boxes: [], items: [] });
         }
-        roomDlg.visible = false; saveToGitHub();
+        expandedIds.add(rd.parentHouse.id); rd.visible = false; markDirty();
       }
 
-      // ---- Container ----
-      function showAddContainer(treeRoomNode) { containerDlg.isEdit = false; containerDlg.editId = null; containerDlg.parentRoom = treeRoomNode.data; containerDlg.form = { name: '', type: '' }; containerDlg.visible = true; }
+      // ===== Container =====
+      function showAddContainer(room) { cd.isEdit = false; cd.editId = null; cd.parentRoom = room; cd.form = { name: '', type: '', tags: [], remark: '' }; cd.visible = true; }
       function saveContainer() {
-        if (!containerDlg.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
-        if (!containerDlg.parentRoom) { ElementPlus.ElMessage.error('未指定所属房间'); return; }
-        if (containerDlg.isEdit) {
-          var containers = containerDlg.parentRoom.containers || [];
-          for (var i = 0; i < containers.length; i++) { if (containers[i].id === containerDlg.editId) { containers[i].name = containerDlg.form.name; containers[i].type = containerDlg.form.type; break; } }
+        if (!cd.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
+        if (!cd.parentRoom) return;
+        ensureArray(cd.parentRoom, 'containers');
+        if (cd.isEdit) {
+          const c = cd.parentRoom.containers.find(x => x.id === cd.editId);
+          if (c) { c.name = cd.form.name; c.type = cd.form.type || ''; c.tags = cd.form.tags || []; c.remark = cd.form.remark || ''; }
         } else {
-          if (!containerDlg.parentRoom.containers) containerDlg.parentRoom.containers = [];
-          containerDlg.parentRoom.containers.push({ id: genId(), name: containerDlg.form.name, type: containerDlg.form.type || 'wardrobe', items: [] });
+          cd.parentRoom.containers.push({ id: genId(), name: cd.form.name, type: cd.form.type || '', tags: cd.form.tags || [], remark: cd.form.remark || '', boxes: [], items: [] });
         }
-        containerDlg.visible = false; saveToGitHub();
+        expandedIds.add(cd.parentRoom.id); cd.visible = false; markDirty();
       }
 
-      // ---- Item ----
-      function showAddItemFromTree(treeContainerNode) { itemDlg.isEdit = false; itemDlg.editItemData = null; itemDlg.parentContainer = treeContainerNode.data; itemDlg.form = { name: '', category: '', remark: '' }; itemDlg.visible = true; }
-      function showAddItemFromPanel() { if (!selectedContainer.value) return; itemDlg.isEdit = false; itemDlg.editItemData = null; itemDlg.parentContainer = selectedContainer.value; itemDlg.form = { name: '', category: '', remark: '' }; itemDlg.visible = true; }
+      // ===== Box =====
+      function showAddBox(parent) { bd.isEdit = false; bd.editId = null; bd.parentObj = parent; bd.form = { name: '', color: '', tags: [], remark: '' }; bd.visible = true; }
+      function saveBox() {
+        if (!bd.form.name) { ElementPlus.ElMessage.warning('请输入名称'); return; }
+        if (!bd.parentObj) return;
+        ensureArray(bd.parentObj, 'boxes');
+        if (bd.isEdit && bd.editId) {
+          const b = bd.parentObj.boxes.find(x => x.id === bd.editId);
+          if (b) { b.name = bd.form.name; b.color = bd.form.color || ''; b.tags = bd.form.tags || []; b.remark = bd.form.remark || ''; }
+        } else {
+          bd.parentObj.boxes.push({ id: genId(), name: bd.form.name, color: bd.form.color || '', tags: bd.form.tags || [], remark: bd.form.remark || '', boxes: [], items: [] });
+        }
+        expandedIds.add(bd.parentObj.id); bd.visible = false; markDirty();
+      }
+
+      // ===== Item =====
+      function showAddItem(parent) { id2.isEdit = false; id2.editId = null; id2.parentObj = parent; id2.editItemData = null; id2.form = { name: '', category: '', tags: [], image: '', remark: '', createTime: null }; id2.visible = true; }
       function saveItem() {
-        if (!itemDlg.form.name) { ElementPlus.ElMessage.warning('请输入物品名称'); return; }
-        if (!itemDlg.parentContainer) { ElementPlus.ElMessage.error('未指定所属收纳位'); return; }
-        if (itemDlg.isEdit && itemDlg.editItemData) {
-          itemDlg.editItemData.name = itemDlg.form.name;
-          itemDlg.editItemData.category = itemDlg.form.category;
-          itemDlg.editItemData.remark = itemDlg.form.remark;
+        if (!id2.form.name) { ElementPlus.ElMessage.warning('请输入物品名称'); return; }
+        ensureArray(id2.parentObj, 'items');
+        if (id2.isEdit && id2.editItemData) {
+          const it = id2.editItemData;
+          it.name = id2.form.name; it.category = id2.form.category || ''; it.tags = id2.form.tags || []; it.image = id2.form.image || ''; it.remark = id2.form.remark || '';
         } else {
-          if (!itemDlg.parentContainer.items) itemDlg.parentContainer.items = [];
-          itemDlg.parentContainer.items.push({ id: genId(), name: itemDlg.form.name, category: itemDlg.form.category || '', remark: itemDlg.form.remark || '', createTime: Date.now() });
+          id2.parentObj.items.push({ id: genId(), name: id2.form.name, category: id2.form.category || '', tags: id2.form.tags || [], image: id2.form.image || '', remark: id2.form.remark || '', createTime: Date.now() });
         }
-        itemDlg.visible = false; saveToGitHub();
-      }
-      function editItem(item) { itemDlg.isEdit = true; itemDlg.editItemData = item; itemDlg.parentContainer = selectedContainer.value; itemDlg.form = { name: item.name, category: item.category || '', remark: item.remark || '' }; itemDlg.visible = true; }
-      function deleteItem(item) {
-        ElementPlus.ElMessageBox.confirm('确定删除「' + item.name + '」吗？', '确认删除', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
-          .then(function () { var c = selectedContainer.value; if (c && c.items) { removeById(c.items, item.id); saveToGitHub(); } })
-          .catch(function () {});
+        expandedIds.add(id2.parentObj.id); id2.visible = false; markDirty();
       }
 
-      // ---- 通用编辑/删除树节点 ----
-      function editNode(treeDataNode) {
-        if (treeDataNode.type === 'house') {
-          var h = treeDataNode.data;
-          houseDlg.isEdit = true; houseDlg.editId = h.id; houseDlg.form = { name: h.name, type: h.type || '' }; houseDlg.visible = true;
-        } else if (treeDataNode.type === 'room') {
-          var r = treeDataNode.data;
-          for (var i = 0; i < store.houses.length; i++) {
-            var house = store.houses[i];
-            for (var j = 0; j < (house.rooms || []).length; j++) {
-              if (house.rooms[j].id === r.id) { roomDlg.isEdit = true; roomDlg.editId = r.id; roomDlg.parentHouse = house; roomDlg.form = { name: r.name, type: r.type || '' }; roomDlg.visible = true; return; }
-            }
-          }
-        } else if (treeDataNode.type === 'container') {
-          var c = treeDataNode.data;
-          for (var hi = 0; hi < store.houses.length; hi++) {
-            for (var ri = 0; ri < (store.houses[hi].rooms || []).length; ri++) {
-              for (var ci = 0; ci < (store.houses[hi].rooms[ri].containers || []).length; ci++) {
-                if (store.houses[hi].rooms[ri].containers[ci].id === c.id) { containerDlg.isEdit = true; containerDlg.editId = c.id; containerDlg.parentRoom = store.houses[hi].rooms[ri]; containerDlg.form = { name: c.name, type: c.type || '' }; containerDlg.visible = true; return; }
-              }
-            }
-          }
+      // ===== Edit / Delete =====
+      function editEntity(entity, type) {
+        if (type === 'house') { hd.isEdit = true; hd.editId = entity.id; hd.form = { name: entity.name, remark: entity.remark || '' }; hd.visible = true; }
+        else if (type === 'room') { rd.isEdit = true; rd.editId = entity.id; rd.parentHouse = findParentOfRoom(entity.id); rd.form = { name: entity.name, type: entity.type || '', tags: entity.tags || [], remark: entity.remark || '' }; rd.visible = true; }
+        else if (type === 'container') { cd.isEdit = true; cd.editId = entity.id; cd.parentRoom = findParentOfContainer(entity.id); cd.form = { name: entity.name, type: entity.type || '', tags: entity.tags || [], remark: entity.remark || '' }; cd.visible = true; }
+        else if (type === 'box') { bd.isEdit = true; bd.editId = entity.id; bd.parentObj = findParentOfBox(entity.id); bd.form = { name: entity.name, color: entity.color || '', tags: entity.tags || [], remark: entity.remark || '' }; bd.visible = true; }
+        else if (type === 'item') { id2.isEdit = true; id2.editId = entity.id; id2.editItemData = entity; id2.parentObj = findParentOfItem(entity.id); id2.form = { name: entity.name, category: entity.category || '', tags: entity.tags || [], image: entity.image || '', remark: entity.remark || '', createTime: entity.createTime }; id2.visible = true; }
+      }
+      function editFromTree(treeData) { editEntity(treeData.entity, treeData.type); }
+
+      function deleteEntity(entity, type) {
+        ElementPlus.ElMessageBox.confirm('确定删除「' + entity.name + '」及其所有子级吗？', '确认删除', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+          .then(() => {
+            if (type === 'house') removeFromArray(store.houses, entity.id);
+            else if (type === 'room') { for (const h of store.houses) if (removeFromArray(h.rooms, entity.id)) break; }
+            else if (type === 'container') { for (const h of store.houses) for (const r of (h.rooms || [])) if (removeFromArray(r.containers, entity.id)) break; }
+            else if (type === 'box') removeBoxFromHouses(entity.id);
+            else if (type === 'item') removeItemFromHouses(entity.id);
+            expandedIds.delete(entity.id); markDirty();
+          }).catch(() => {});
+      }
+      function deleteFromTree(treeData) { deleteEntity(treeData.entity, treeData.type); }
+
+      function removeBoxFromHouses(targetId) {
+        for (const h of store.houses) for (const r of (h.rooms || [])) {
+          if (removeFromArray(r.boxes, targetId)) return;
+          for (const c of (r.containers || [])) if (removeBoxRecursive(c, targetId)) return;
+          for (const b of (r.boxes || [])) if (removeBoxRecursive(b, targetId)) return;
         }
       }
+      function removeBoxRecursive(parent, targetId) {
+        if (removeFromArray(parent.boxes, targetId)) return true;
+        for (const b of (parent.boxes || [])) if (removeBoxRecursive(b, targetId)) return true;
+        return false;
+      }
+      function removeItemFromHouses(targetId) {
+        for (const h of store.houses) for (const r of (h.rooms || [])) {
+          if (removeFromArray(r.items, targetId)) return;
+          for (const c of (r.containers || [])) if (removeItemRecursive(c, targetId)) return;
+          for (const b of (r.boxes || [])) if (removeItemRecursive(b, targetId)) return;
+        }
+      }
+      function removeItemRecursive(parent, targetId) {
+        if (removeFromArray(parent.items, targetId)) return true;
+        for (const b of (parent.boxes || [])) if (removeItemRecursive(b, targetId)) return true;
+        return false;
+      }
 
-      function deleteNode(treeDataNode) {
-        ElementPlus.ElMessageBox.confirm('确定删除「' + treeDataNode.label + '」及其所有子级吗？', '确认删除', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
-          .then(function () {
-            if (treeDataNode.type === 'house') { removeById(store.houses, treeDataNode.origId); }
-            else if (treeDataNode.type === 'room') { for (var i = 0; i < store.houses.length; i++) { if (removeById(store.houses[i].rooms || [], treeDataNode.origId)) break; } }
-            else if (treeDataNode.type === 'container') { for (var hi = 0; hi < store.houses.length; hi++) { for (var ri = 0; ri < (store.houses[hi].rooms || []).length; ri++) { if (removeById(store.houses[hi].rooms[ri].containers || [], treeDataNode.origId)) break; } } }
-            if (selectedContainerId.value === treeDataNode.origId) selectedContainerId.value = null;
-            saveToGitHub();
-          }).catch(function () {});
+      function findParentOfRoom(roomId) { for (const h of store.houses) for (const r of (h.rooms || [])) if (r.id === roomId) return h; return null; }
+      function findParentOfContainer(contId) { for (const h of store.houses) for (const r of (h.rooms || [])) for (const c of (r.containers || [])) if (c.id === contId) return r; return null; }
+      function findParentOfBox(boxId) {
+        for (const h of store.houses) for (const r of (h.rooms || [])) {
+          for (const b of (r.boxes || [])) if (b.id === boxId) return r;
+          for (const c of (r.containers || [])) { const p = findBoxParentRecursive(c, boxId); if (p) return p; }
+          for (const b of (r.boxes || [])) { const p = findBoxParentRecursive(b, boxId); if (p) return p; }
+        }
+        return null;
+      }
+      function findBoxParentRecursive(parent, boxId) {
+        for (const b of (parent.boxes || [])) { if (b.id === boxId) return parent; }
+        for (const b of (parent.boxes || [])) { const p = findBoxParentRecursive(b, boxId); if (p) return p; }
+        return null;
+      }
+      function findParentOfItem(itemId) {
+        for (const h of store.houses) for (const r of (h.rooms || [])) {
+          for (const i of (r.items || [])) if (i.id === itemId) return r;
+          for (const c of (r.containers || [])) { const p = findItemParentRecursive(c, itemId); if (p) return p; }
+          for (const b of (r.boxes || [])) { const p2 = findItemParentRecursive(b, itemId); if (p2) return p2; }
+        }
+        return null;
+      }
+      function findItemParentRecursive(parent, itemId) {
+        for (const i of (parent.items || [])) if (i.id === itemId) return parent;
+        for (const b of (parent.boxes || [])) { const p = findItemParentRecursive(b, itemId); if (p) return p; }
+        return null;
       }
 
       function logout() {
-        localStorage.removeItem('home_manager_logged_in');
-        store.loggedIn = false;
-        store.githubToken = '';
-        store.githubRepo = '';
+        stopAutoSync();
+        localStorage.removeItem('xiaohua_xiaofeng_logged_in');
+        store.loggedIn = false; store.githubToken = ''; store.githubRepo = ''; store.houses = []; store.categories = []; store.tags = [];
       }
 
-      // 清理事件监听
-      onMounted(function () {
-        // already handled from fetchData
-      });
-
       return {
-        store: store, presets: presets, currentFeature: currentFeature, isMobileView: isMobileView,
-        treeRef: treeRef, expandedKeys: expandedKeys, selectedContainerId: selectedContainerId,
-        searchMode: searchMode, searchQuery: searchQuery, searchResults: searchResults, showSearch: showSearch, searchVisible: searchVisible,
-        showMobileTree: showMobileTree,
-        treeData: treeData, selectedContainer: selectedContainer, currentContainerPath: currentContainerPath,
-        houseDlg: houseDlg, roomDlg: roomDlg, containerDlg: containerDlg, itemDlg: itemDlg,
-        enterFeature: enterFeature, focusSearch: focusSearch,
-        onNodeClick: onNodeClick, onNodeClickMobile: onNodeClickMobile,
-        doSearch: doSearch, navToSearchResult: navToSearchResult,
-        showAddHouse: showAddHouse, saveHouse: saveHouse,
-        showAddRoom: showAddRoom, saveRoom: saveRoom,
-        showAddContainer: showAddContainer, saveContainer: saveContainer,
-        showAddItemFromTree: showAddItemFromTree, showAddItemFromPanel: showAddItemFromPanel, saveItem: saveItem,
-        editItem: editItem, deleteItem: deleteItem,
-        editNode: editNode, deleteNode: deleteNode,
-        formatTime: formatTime, logout: logout,
+        store, presets,
+        currentFeature, isMobileView,
+        desktopTreeRef, mobileTreeRef, cardAreaRef,
+        expandedIds, sidebarCollapsed,
+        searchVisible, searchQuery, searchResults, showSearch, showMobileTree,
+        zoom, zoomPercent, compactMode, spacingClass, manageDialog, moveDialog, clearDialog,
+        syncStatusText,
+        treeData, allExpandedKeys,
+        hd, rd, cd, bd, id2,
+        enterFeature, showManageDialog, toggleExpand,
+        toggleSearch, closeSearch, doSearch, navToSearchResult,
+        zoomIn, zoomOut, zoomReset, toggleSpacing,
+        allowTreeDrag, allowTreeDrop, handleTreeDrop,
+        openMoveDialog, confirmMove,
+        toggleUseGitHub, manualSync, showClearDialog, doClearGitHub,
+        isLocalMode, isOnlineSyncEnabled,
+        onTreeNodeClick, onMobileTreeNodeClick,
+        onTreeAddContainer, onTreeAddBox, onTreeAddItem,
+        addCategory, updateCategory, deleteCategory,
+        addTag, updateTag, deleteTag,
+        onCategoryChange,
+        showAddHouse, saveHouse,
+        showAddRoom, showAddRoomForHouse, saveRoom,
+        showAddContainer, saveContainer,
+        showAddBox, saveBox,
+        showAddItem, saveItem,
+        editEntity, editFromTree,
+        deleteEntity, deleteFromTree,
+        formatTime, logout, getEntityTypeName, getIcon,
       };
     },
   };
 
   // ==================== 启动 ====================
-  var app = VueApp({
+  const app = createApp({
     template: '<LoginGate v-if="!store.loggedIn" /><MainApp v-else />',
-    setup: function () { return { store: store }; },
+    setup() { return { store }; },
   });
 
   app.component('LoginGate', LoginGate);
   app.component('MainApp', MainApp);
+  app.component('CardNode', CardNode);
+  app.component('TagInput', TagInput);
+  app.component('ImageUpload', ImageUpload);
+  app.component('ListManager', ListManager);
+  app.directive('long-press', {
+    mounted(el, binding) {
+      let timer = null;
+      let startPos = null;
+      function start(e) {
+        if (e.button && e.button !== 0) return;
+        cancel();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        startPos = { clientX, clientY };
+        timer = setTimeout(() => { binding.value(e); timer = null; startPos = null; }, 600);
+      }
+      function move(e) {
+        if (!timer || !startPos) return;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const dx = clientX - startPos.clientX;
+        const dy = clientY - startPos.clientY;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) cancel();
+      }
+      function cancel() { if (timer) { clearTimeout(timer); timer = null; } startPos = null; }
+      el.addEventListener('mousedown', start);
+      el.addEventListener('touchstart', start, { passive: true });
+      el.addEventListener('mousemove', move);
+      el.addEventListener('touchmove', move, { passive: true });
+      el.addEventListener('mouseup', cancel);
+      el.addEventListener('mouseleave', cancel);
+      el.addEventListener('touchend', cancel);
+      el.addEventListener('touchcancel', cancel);
+      el.addEventListener('contextmenu', cancel);
+      el._longPressCleanup = function() {
+        el.removeEventListener('mousedown', start);
+        el.removeEventListener('touchstart', start);
+        el.removeEventListener('mousemove', move);
+        el.removeEventListener('touchmove', move);
+        el.removeEventListener('mouseup', cancel);
+        el.removeEventListener('mouseleave', cancel);
+        el.removeEventListener('touchend', cancel);
+        el.removeEventListener('touchcancel', cancel);
+        el.removeEventListener('contextmenu', cancel);
+      };
+    },
+    unmounted(el) { if (el._longPressCleanup) el._longPressCleanup(); }
+  });
   app.use(ElementPlus);
 
   if (typeof ElementPlusIconsVue !== 'undefined') {
-    for (var key in ElementPlusIconsVue) {
-      if (Object.prototype.hasOwnProperty.call(ElementPlusIconsVue, key)) { app.component(key, ElementPlusIconsVue[key]); }
+    for (const key in ElementPlusIconsVue) {
+      if (Object.prototype.hasOwnProperty.call(ElementPlusIconsVue, key)) app.component(key, ElementPlusIconsVue[key]);
     }
   }
 
