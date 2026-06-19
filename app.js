@@ -338,7 +338,7 @@
       const getResp = await fetch(ghUrl(), { headers: ghHeaders() });
       let sha = null;
       if (getResp.ok) { const current = await getResp.json(); sha = current.sha; }
-      const putBody = { message: '更新家庭收纳数据', content: fileContent };
+      const putBody = { message: '更新收纳数据', content: fileContent };
       if (sha) putBody.sha = sha;
       const putResp = await fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(putBody) });
       if (!putResp.ok) { const errData = await putResp.json(); throw new Error(errData.message || 'HTTP ' + putResp.status); }
@@ -365,7 +365,7 @@
       const getResp = await fetch(ghUrl(), { headers: ghHeaders() });
       if (!getResp.ok) throw new Error('获取文件信息失败 ' + getResp.status);
       const current = await getResp.json();
-      const delResp = await fetch(ghUrl(), { method: 'DELETE', headers: ghHeaders(), body: JSON.stringify({ message: '清空家庭收纳数据', sha: current.sha }) });
+      const delResp = await fetch(ghUrl(), { method: 'DELETE', headers: ghHeaders(), body: JSON.stringify({ message: '清空收纳数据', sha: current.sha }) });
       if (!delResp.ok) throw new Error('删除失败 ' + delResp.status);
       resetData();
       store.dirty = false;
@@ -670,16 +670,16 @@
           <div class="menu-header">
             <div class="menu-avatar">🌸</div>
             <h1>小花与小风</h1>
-            <p class="menu-subtitle">您的家庭数字助手</p>
+            <p class="menu-subtitle">管家·花小风</p>
           </div>
           <div class="menu-grid">
             <div class="menu-card" @click="enterFeature('storage')">
               <div class="menu-card-icon">🏠</div>
-              <div style="flex:1"><div class="menu-card-title">家庭收纳管理</div><div class="menu-card-desc">小窝 · 房间 · 柜子 · 盒子 · 物品</div></div>
+              <div style="flex:1"><div class="menu-card-title">我们的收纳~</div><div class="menu-card-desc">翻箱倒柜~~</div></div>
             </div>
           </div>
           <div class="menu-footer">
-            <el-button text size="large" @click="logout" style="font-size:16px;color:#fff;">👋 拜拜~</el-button>
+            <el-button text size="large" @click="logout" style="font-size:16px;color:#fff;">👋 退~退~退~</el-button>
           </div>
         </div>
 
@@ -687,7 +687,7 @@
         <div v-else class="storage-page blueprint-bg">
           <div class="s-header">
             <button class="s-back" @click="currentFeature = null" title="返回主菜单">←</button>
-            <span class="s-header-title">家庭收纳管理</span>
+            <span class="s-header-title">我们的收纳</span>
             <div class="s-header-right">
               <span class="sync-status" :title="syncStatusText">{{ syncStatusText }}</span>
               <button class="s-header-btn" @click="manualSync" title="保存同步">💾</button>
@@ -980,100 +980,60 @@
         if (store.dirty) { e.preventDefault(); e.returnValue = '还有未同步的更改，确定要离开吗？'; }
       });
 
-      let cardAreaListenersAttached = false;
-      function attachCardAreaListeners() {
-        if (cardAreaListenersAttached) return;
-        const el = cardAreaRef.value;
-        if (!el) return;
-        cardAreaListenersAttached = true;
-        el.addEventListener('wheel', onWheel, { passive: false });
-        el.addEventListener('pointerdown', onPointerDown);
-        el.addEventListener('pointermove', onPointerMove);
-        el.addEventListener('pointerup', onPointerUp);
-        el.addEventListener('pointerleave', onPointerUp);
-        el.addEventListener('touchstart', onTouchStart, { passive: true });
-        el.addEventListener('touchmove', onTouchMove, { passive: false });
-        el.addEventListener('touchend', onTouchEnd, { passive: true });
-      }
-      function detachCardAreaListeners() {
-        if (!cardAreaListenersAttached) return;
-        const el = cardAreaRef.value;
-        if (!el) return;
-        cardAreaListenersAttached = false;
-        el.removeEventListener('wheel', onWheel);
-        el.removeEventListener('pointerdown', onPointerDown);
-        el.removeEventListener('pointermove', onPointerMove);
-        el.removeEventListener('pointerup', onPointerUp);
-        el.removeEventListener('pointerleave', onPointerUp);
-        el.removeEventListener('touchstart', onTouchStart);
-        el.removeEventListener('touchmove', onTouchMove);
-        el.removeEventListener('touchend', onTouchEnd);
-      }
-      watch(currentFeature, (val) => {
-        if (val === 'storage') nextTick(attachCardAreaListeners);
-        else detachCardAreaListeners();
-      });
-      onUnmounted(detachCardAreaListeners);
-      let lastPinchDist = 0, panState = null;
-      function isInteractive(target) {
-        while (target && target.parentElement && target !== cardAreaRef.value) {
-          if (target.classList && target.classList.contains('entity-card')) return true;
-          if (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return true;
-          target = target.parentElement;
-        }
-        return false;
-      }
-      function onWheel(e) {
-        e.preventDefault();
-        if (e.deltaY < 0) zoom.value = Math.min(zoom.value + 0.1, 2);
-        else zoom.value = Math.max(zoom.value - 0.1, 0.5);
-      }
-      // Pointer-based panning (works for mouse and touch single-finger)
-      function onPointerDown(e) {
-        if (isInteractive(e.target)) return;
-        const el = cardAreaRef.value;
-        if (!el) return;
-        panState = { startX: e.clientX, startY: e.clientY, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop, moved: false };
-        el.classList.add('panning');
-      }
-      function onPointerMove(e) {
-        if (!panState || panState.moved === undefined) return;
-        const el = cardAreaRef.value;
-        if (!el) return;
-        const dx = e.clientX - panState.startX;
-        const dy = e.clientY - panState.startY;
-        if (!panState.moved && Math.hypot(dx, dy) > 5) panState.moved = true;
-        if (panState.moved) {
-          el.scrollLeft = panState.scrollLeft - dx;
-          el.scrollTop = panState.scrollTop - dy;
-        }
-      }
-      function onPointerUp() {
-        if (!panState) return;
-        const el = cardAreaRef.value;
-        if (el) el.classList.remove('panning');
-        panState = null;
-      }
-      // Touch events only for two-finger pinch
-      function onTouchStart(e) {
-        if (e.touches.length === 2) {
-          lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        }
-      }
-      function onTouchMove(e) {
-        if (e.touches.length === 2) {
-          e.preventDefault();
-          const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-          const diff = dist - lastPinchDist;
-          if (Math.abs(diff) > 10) {
-            zoom.value = Math.max(0.5, Math.min(2, zoom.value + diff * 0.01));
-            lastPinchDist = dist;
+      var dragState = null, pinchDist = 0, cListeners = [];
+      function addL(el, type, fn, opts) { el.addEventListener(type, fn, opts); cListeners.push(function() { el.removeEventListener(type, fn); }); }
+      function addD(type, fn) { document.addEventListener(type, fn); cListeners.push(function() { document.removeEventListener(type, fn); }); }
+      function initCardArea(el) {
+        addL(el, 'wheel', function(e) { e.preventDefault(); zoom.value = Math.max(0.5, Math.min(2, zoom.value - e.deltaY * 0.01)); });
+        addL(el, 'mousedown', function(e) {
+          if (e.button !== 0) return;
+          if (e.target.closest('.entity-card, button, a, input, textarea, .tree-act-btn, .el-dropdown')) return;
+          dragState = { sx: e.clientX, sy: e.clientY, sl: el.scrollLeft, st: el.scrollTop, moved: false };
+        });
+        addD('mousemove', function(e) {
+          if (!dragState) return;
+          var dx = e.clientX - dragState.sx, dy = e.clientY - dragState.sy;
+          if (!dragState.moved && (dx*dx + dy*dy > 16)) dragState.moved = true;
+          if (dragState.moved) { el.scrollLeft = dragState.sl - dx; el.scrollTop = dragState.st - dy; }
+        });
+        addD('mouseup', function() { dragState = null; });
+        addL(el, 'touchstart', function(e) {
+          if (e.touches.length === 2) {
+            pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+          } else if (e.touches.length === 1) {
+            if (e.target.closest('.entity-card, button, a, input, textarea, .tree-act-btn, .el-dropdown')) return;
+            dragState = { sx: e.touches[0].clientX, sy: e.touches[0].clientY, sl: el.scrollLeft, st: el.scrollTop, moved: false };
           }
-        }
+        }, { passive: true });
+        addL(el, 'touchmove', function(e) {
+          if (e.touches.length === 2) {
+            e.preventDefault();
+            var d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            var diff = d - pinchDist;
+            if (Math.abs(diff) > 10) { zoom.value = Math.max(0.5, Math.min(2, zoom.value + diff * 0.01)); pinchDist = d; }
+          } else if (e.touches.length === 1 && dragState) {
+            var dx = e.touches[0].clientX - dragState.sx, dy = e.touches[0].clientY - dragState.sy;
+            if (!dragState.moved && (dx*dx + dy*dy > 16)) dragState.moved = true;
+            if (dragState.moved) { el.scrollLeft = dragState.sl - dx; el.scrollTop = dragState.st - dy; }
+          }
+        }, { passive: false });
+        addL(el, 'touchend', function() { dragState = null; pinchDist = 0; }, { passive: true });
       }
-      function onTouchEnd(e) {
-        if (e.touches.length < 2) lastPinchDist = 0;
+      function detachCardArea() {
+        for (var i = 0; i < cListeners.length; i++) try { cListeners[i](); } catch(ex) {}
+        cListeners = [];
+        dragState = null;
       }
+      function attachCardArea() {
+        var el = cardAreaRef.value;
+        if (!el) { setTimeout(attachCardArea, 30); return; }
+        initCardArea(el);
+      }
+      watch(currentFeature, function(val) {
+        if (val === 'storage') attachCardArea();
+        else detachCardArea();
+      });
+      onUnmounted(detachCardArea);
 
       function refreshFromGitHub() {
         if (!isOnlineSyncEnabled()) { ElementPlus.ElMessage.warning('GitHub 同步未开启'); return; }

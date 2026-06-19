@@ -143,10 +143,8 @@
     /* 卡片主区域 */
     .card-area {
       flex: 1; overflow: hidden; position: relative;
-      padding: 0; --zoom: 1; touch-action: none;
-      cursor: grab;
+      padding: 0; --zoom: 1;
     }
-    .card-area.panning { cursor: grabbing; }
     .card-area-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 240px; color: #c48a9c; font-size: 14px; gap: 10px; }
 
     .zoom-controls {
@@ -162,6 +160,7 @@
     .zoom-container {
       transform-origin: top left;
       transition: transform 0.2s;
+      transform: scale(var(--zoom, 1));
       min-width: calc(100% / var(--zoom, 1));
       min-height: calc(100% / var(--zoom, 1));
       padding: 48px 16px 24px;
