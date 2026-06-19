@@ -753,11 +753,11 @@
           <div class="menu-grid">
             <div class="menu-card" @click="enterFeature('storage')">
               <div class="menu-card-icon">🏠</div>
-              <div style="flex:1"><div class="menu-card-title">家庭收纳管理</div><div class="menu-card-desc">小窝 · 房间 · 柜子 · 盒子 · 物品</div></div>
+              <div style="flex:1"><div class="menu-card-title">我们的家</div><div class="menu-card-desc">翻箱倒柜攻略~</div></div>
             </div>
             <div class="menu-card" @click="enterFeature('family')">
               <div class="menu-card-icon">👨‍👩‍👧‍👦</div>
-              <div style="flex:1"><div class="menu-card-title">我们的家人们</div><div class="menu-card-desc">家族族谱 · 血缘关系管理</div></div>
+              <div style="flex:1"><div class="menu-card-title">我们的家人们</div><div class="menu-card-desc">常言道：陈林半天下~</div></div>
             </div>
           </div>
           <div class="menu-footer">
@@ -769,7 +769,7 @@
         <div v-else-if="currentFeature === 'storage'" class="storage-page blueprint-bg">
           <div class="s-header">
             <button class="s-back" @click="currentFeature = null" title="返回主菜单">←</button>
-            <span class="s-header-title">我们的收纳</span>
+            <span class="s-header-title">我们的家</span>
             <div class="s-header-right">
               <span class="sync-status" :title="syncStatusText">{{ syncStatusText }}</span>
               <button class="s-header-btn" @click="manualSync" title="保存同步">💾</button>
