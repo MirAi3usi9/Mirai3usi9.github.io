@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { createApp, ref, reactive, computed, toRaw, nextTick, onMounted, onUnmounted } = Vue;
+  const { createApp, ref, reactive, computed, toRaw, nextTick, onMounted, onUnmounted, watch } = Vue;
 
   // ==================== XOR 工具 ====================
   const CRED_TOKEN = 'DxAWNxxXPz4eGTcgIRk0UCgKWj4zDxQVDxpTWAtWPS08XUovEj1RCw==';
@@ -980,22 +980,26 @@
         if (store.dirty) { e.preventDefault(); e.returnValue = '还有未同步的更改，确定要离开吗？'; }
       });
 
-      onMounted(() => {
+      let cardAreaListenersAttached = false;
+      function attachCardAreaListeners() {
+        if (cardAreaListenersAttached) return;
         const el = cardAreaRef.value;
         if (!el) return;
+        cardAreaListenersAttached = true;
         el.addEventListener('wheel', onWheel, { passive: false });
         el.addEventListener('pointerdown', onPointerDown);
         el.addEventListener('pointermove', onPointerMove);
         el.addEventListener('pointerup', onPointerUp);
         el.addEventListener('pointerleave', onPointerUp);
-        // Touch events only for two-finger pinch (pointer events don't track multiple points well)
         el.addEventListener('touchstart', onTouchStart, { passive: true });
         el.addEventListener('touchmove', onTouchMove, { passive: false });
         el.addEventListener('touchend', onTouchEnd, { passive: true });
-      });
-      onUnmounted(() => {
+      }
+      function detachCardAreaListeners() {
+        if (!cardAreaListenersAttached) return;
         const el = cardAreaRef.value;
         if (!el) return;
+        cardAreaListenersAttached = false;
         el.removeEventListener('wheel', onWheel);
         el.removeEventListener('pointerdown', onPointerDown);
         el.removeEventListener('pointermove', onPointerMove);
@@ -1004,7 +1008,12 @@
         el.removeEventListener('touchstart', onTouchStart);
         el.removeEventListener('touchmove', onTouchMove);
         el.removeEventListener('touchend', onTouchEnd);
+      }
+      watch(currentFeature, (val) => {
+        if (val === 'storage') nextTick(attachCardAreaListeners);
+        else detachCardAreaListeners();
       });
+      onUnmounted(detachCardAreaListeners);
       let lastPinchDist = 0, panState = null;
       function isInteractive(target) {
         while (target && target.parentElement && target !== cardAreaRef.value) {
