@@ -140,9 +140,11 @@
 
     /* 卡片主区域 */
     .card-area {
-      flex: 1; overflow: auto; position: relative;
-      padding: 0; --zoom: 1;
+      flex: 1; overflow: hidden; position: relative;
+      padding: 0; --zoom: 1; touch-action: none;
+      cursor: grab;
     }
+    .card-area.panning { cursor: grabbing; }
     .card-area-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 240px; color: #c48a9c; font-size: 14px; gap: 10px; }
 
     .zoom-controls {

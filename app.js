@@ -984,6 +984,11 @@
         const el = cardAreaRef.value;
         if (!el) return;
         el.addEventListener('wheel', onWheel, { passive: false });
+        el.addEventListener('pointerdown', onPointerDown);
+        el.addEventListener('pointermove', onPointerMove);
+        el.addEventListener('pointerup', onPointerUp);
+        el.addEventListener('pointerleave', onPointerUp);
+        // Touch events only for two-finger pinch (pointer events don't track multiple points well)
         el.addEventListener('touchstart', onTouchStart, { passive: true });
         el.addEventListener('touchmove', onTouchMove, { passive: false });
         el.addEventListener('touchend', onTouchEnd, { passive: true });
@@ -992,17 +997,55 @@
         const el = cardAreaRef.value;
         if (!el) return;
         el.removeEventListener('wheel', onWheel);
+        el.removeEventListener('pointerdown', onPointerDown);
+        el.removeEventListener('pointermove', onPointerMove);
+        el.removeEventListener('pointerup', onPointerUp);
+        el.removeEventListener('pointerleave', onPointerUp);
         el.removeEventListener('touchstart', onTouchStart);
         el.removeEventListener('touchmove', onTouchMove);
         el.removeEventListener('touchend', onTouchEnd);
       });
-      let lastPinchDist = 0;
+      let lastPinchDist = 0, panState = null;
+      function isInteractive(target) {
+        while (target && target.parentElement && target !== cardAreaRef.value) {
+          if (target.classList && target.classList.contains('entity-card')) return true;
+          if (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return true;
+          target = target.parentElement;
+        }
+        return false;
+      }
       function onWheel(e) {
-        if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
         if (e.deltaY < 0) zoom.value = Math.min(zoom.value + 0.1, 2);
         else zoom.value = Math.max(zoom.value - 0.1, 0.5);
       }
+      // Pointer-based panning (works for mouse and touch single-finger)
+      function onPointerDown(e) {
+        if (isInteractive(e.target)) return;
+        const el = cardAreaRef.value;
+        if (!el) return;
+        panState = { startX: e.clientX, startY: e.clientY, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop, moved: false };
+        el.classList.add('panning');
+      }
+      function onPointerMove(e) {
+        if (!panState || panState.moved === undefined) return;
+        const el = cardAreaRef.value;
+        if (!el) return;
+        const dx = e.clientX - panState.startX;
+        const dy = e.clientY - panState.startY;
+        if (!panState.moved && Math.hypot(dx, dy) > 5) panState.moved = true;
+        if (panState.moved) {
+          el.scrollLeft = panState.scrollLeft - dx;
+          el.scrollTop = panState.scrollTop - dy;
+        }
+      }
+      function onPointerUp() {
+        if (!panState) return;
+        const el = cardAreaRef.value;
+        if (el) el.classList.remove('panning');
+        panState = null;
+      }
+      // Touch events only for two-finger pinch
       function onTouchStart(e) {
         if (e.touches.length === 2) {
           lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
@@ -1019,7 +1062,9 @@
           }
         }
       }
-      function onTouchEnd(e) { if (e.touches.length < 2) lastPinchDist = 0; }
+      function onTouchEnd(e) {
+        if (e.touches.length < 2) lastPinchDist = 0;
+      }
 
       function refreshFromGitHub() {
         if (!isOnlineSyncEnabled()) { ElementPlus.ElMessage.warning('GitHub 同步未开启'); return; }
