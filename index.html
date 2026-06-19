@@ -128,6 +128,33 @@
     }
     .sidebar-mgmt .sidebar-header { gap: 8px; }
 
+    /* ===== 家族族谱 ===== */
+    .family-page { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+    .family-body { flex: 1; overflow: auto; padding: 24px; }
+    .family-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 240px; color: #c48a9c; gap: 12px; font-size: 15px; }
+    .family-canvas { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 20px 0; }
+    .family-gen { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .gen-label { font-size: 13px; color: #c48a9c; font-weight: 600; letter-spacing: 2px; background: #fff8fa; padding: 4px 16px; border-radius: 20px; border: 1px solid #ffd6e0; }
+    .gen-members { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+    .fm-card {
+      background: #fff; border-radius: 14px; border: 2px solid #ffd6e0; padding: 14px;
+      width: 150px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+      box-shadow: 0 2px 8px rgba(255,107,157,0.08); cursor: pointer; transition: all 0.15s;
+      position: relative;
+    }
+    .fm-card:hover { border-color: var(--primary); box-shadow: 0 4px 14px rgba(255,107,157,0.15); transform: translateY(-2px); }
+    .fm-avatar { font-size: 32px; }
+    .fm-name { font-size: 15px; font-weight: 600; color: #5a3a47; }
+    .fm-spouse { font-size: 11px; color: #a06075; background: #fff5f8; padding: 2px 8px; border-radius: 10px; }
+    .fm-spouse-label { font-size: 10px; color: #c48a9c; }
+    .fm-actions { display: flex; gap: 4px; margin-top: 4px; }
+    .fm-btn {
+      background: #fff8fa; border: 1px solid #ffd6e0; border-radius: 6px; font-size: 12px;
+      cursor: pointer; padding: 3px 6px; color: #a06075; transition: all 0.15s;
+    }
+    .fm-btn:hover { background: #fff0f4; border-color: var(--primary); color: var(--primary); }
+    .fm-btn.danger:hover { color: #f56c6c; border-color: #f56c6c; background: #fef0f0; }
+
     .tree-node { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 6px; font-size: 13px; gap: 2px; }
     .tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
     .tree-node .tree-act-btn { opacity: 0; transition: opacity 0.15s; }

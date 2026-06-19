@@ -236,9 +236,11 @@
     tags: [],
     roomTypes: [],
     containerTypes: [],
+    familyMembers: [],
     loading: false,
     lastError: '',
     dirty: false,
+    familyDirty: false,
     useGitHub: false,
     lastSync: null,
     syncError: '',
@@ -409,6 +411,58 @@
     localStorage.setItem('xiaohua_xiaofeng_data', JSON.stringify({ houses: toRaw(store.houses), categories: toRaw(store.categories), tags: toRaw(store.tags), roomTypes: toRaw(store.roomTypes), containerTypes: toRaw(store.containerTypes) }));
   }
 
+  // ==================== 家人们 | 独立存储 ====================
+  function ghFamilyUrl() { return 'https://api.github.com/repos/' + store.githubRepo + '/contents/data/family.json'; }
+  function fetchFamilyLocalStorage() {
+    var d = localStorage.getItem('xiaohua_xiaofeng_family_data');
+    try { store.familyMembers = d ? JSON.parse(d) : []; } catch(e) { store.familyMembers = []; }
+  }
+  function saveFamilyToLocalStorage() {
+    localStorage.setItem('xiaohua_xiaofeng_family_data', JSON.stringify(toRaw(store.familyMembers)));
+    store.familyDirty = false;
+    store.lastSync = Date.now();
+    localStorage.removeItem('xiaohua_xiaofeng_family_dirty');
+  }
+  function markFamilyDirty() {
+    store.familyDirty = true;
+    localStorage.setItem('xiaohua_xiaofeng_family_dirty', 'true');
+    localStorage.setItem('xiaohua_xiaofeng_family_data', JSON.stringify(toRaw(store.familyMembers)));
+  }
+  async function fetchFamilyData() {
+    fetchFamilyLocalStorage();
+    store.familyDirty = localStorage.getItem('xiaohua_xiaofeng_family_dirty') === 'true';
+    if (!isOnlineSyncEnabled() || store.familyDirty) return;
+    try {
+      var resp = await fetch(ghFamilyUrl(), { headers: ghHeaders() });
+      if (!resp.ok) return;
+      var data = await resp.json();
+      if (!data.content) return;
+      var str = xorDecode(atob(data.content.trim()), 'hxf');
+      store.familyMembers = JSON.parse(str) || [];
+      store.lastSync = Date.now();
+      saveFamilyToLocalStorage();
+    } catch(e) { store.lastError = '家人们拉取失败: ' + e.message; }
+  }
+  async function syncFamilyToGitHub() {
+    if (!store.familyDirty) return;
+    if (!isOnlineSyncEnabled()) { saveFamilyToLocalStorage(); return; }
+    store.loading = true;
+    try {
+      var json = JSON.stringify(toRaw(store.familyMembers));
+      var content = btoa(xorEncode(json, 'hxf'));
+      var getResp = await fetch(ghFamilyUrl(), { headers: ghHeaders() });
+      var sha = null;
+      if (getResp.ok) { sha = (await getResp.json()).sha; }
+      var body = { message: '更新家庭关系数据', content: content };
+      if (sha) body.sha = sha;
+      var putResp = await fetch(ghFamilyUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
+      if (!putResp.ok) throw new Error('HTTP ' + putResp.status);
+      store.familyDirty = false; store.lastSync = Date.now();
+      saveFamilyToLocalStorage();
+    } catch(e) { store.lastError = '家人们同步失败: ' + e.message; ElementPlus.ElMessage.error(store.lastError); }
+    finally { store.loading = false; }
+  }
+
   // ==================== 登录 ====================
   const LoginGate = {
     template: `
@@ -447,6 +501,8 @@
       function clearLocalData() {
         localStorage.removeItem('xiaohua_xiaofeng_data');
         localStorage.removeItem('xiaohua_xiaofeng_dirty');
+        localStorage.removeItem('xiaohua_xiaofeng_family_data');
+        localStorage.removeItem('xiaohua_xiaofeng_family_dirty');
         localStorage.removeItem('xiaohua_xiaofeng_use_github');
         localStorage.removeItem('xiaohua_xiaofeng_logged_in');
         ElementPlus.ElMessage.success('缓存已清除，即将刷新页面');
@@ -675,7 +731,11 @@
           <div class="menu-grid">
             <div class="menu-card" @click="enterFeature('storage')">
               <div class="menu-card-icon">🏠</div>
-              <div style="flex:1"><div class="menu-card-title">我们的收纳~</div><div class="menu-card-desc">翻箱倒柜~~</div></div>
+              <div style="flex:1"><div class="menu-card-title">家庭收纳管理</div><div class="menu-card-desc">小窝 · 房间 · 柜子 · 盒子 · 物品</div></div>
+            </div>
+            <div class="menu-card" @click="enterFeature('family')">
+              <div class="menu-card-icon">👨‍👩‍👧‍👦</div>
+              <div style="flex:1"><div class="menu-card-title">我们的家人们</div><div class="menu-card-desc">家族族谱 · 血缘关系管理</div></div>
             </div>
           </div>
           <div class="menu-footer">
@@ -684,7 +744,7 @@
         </div>
 
         <!-- 收纳管理 -->
-        <div v-else class="storage-page blueprint-bg">
+        <div v-else-if="currentFeature === 'storage'" class="storage-page blueprint-bg">
           <div class="s-header">
             <button class="s-back" @click="currentFeature = null" title="返回主菜单">←</button>
             <span class="s-header-title">我们的收纳</span>
@@ -838,6 +898,48 @@
           </el-drawer>
         </div>
 
+        <!-- 家人们 -->
+        <div v-else-if="currentFeature === 'family'" class="family-page">
+          <div class="s-header">
+            <button class="s-back" @click="currentFeature = null" title="返回主菜单">←</button>
+            <span class="s-header-title">我们的家人们</span>
+            <div class="s-header-right">
+              <button class="s-header-btn" @click="enterFamilyFeature" title="刷新">🔄</button>
+              <button class="s-header-btn" @click="showFamilyAdd('')" title="添加成员">➕</button>
+            </div>
+          </div>
+          <div class="family-body">
+            <template v-if="store.familyMembers.length === 0">
+              <div class="family-empty">
+                <div style="font-size:56px;">👨‍👩‍👧‍👦</div>
+                <p>还没有家族成员，点击右上角 ➕ 开始添加</p>
+              </div>
+            </template>
+            <template v-else>
+              <div class="family-canvas">
+                <div class="family-gen" v-for="(gen, gi) in buildFamilyTree()" :key="gi">
+                  <div class="gen-label">{{ ['祖辈','父母辈','我们','子女','孙辈'][gi] || '' }}</div>
+                  <div class="gen-members">
+                    <div class="fm-card" v-for="m in gen" :key="m.id" @click="showFamilyEdit(m)">
+                      <div class="fm-avatar">{{ m.gender === 'female' ? '👩' : '👨' }}</div>
+                      <div class="fm-name">{{ m.name }}</div>
+                      <div class="fm-spouse" v-if="m.spouseId">
+                        <span class="fm-spouse-label">配偶</span>
+                        {{ (getFamilyById(m.spouseId) || {}).name || '?' }}
+                      </div>
+                      <div class="fm-actions">
+                        <button class="fm-btn" @click.stop="showFamilyAdd(m.id)" title="添加子女">+👶</button>
+                        <button class="fm-btn" @click.stop="showFamilyEdit(m)" title="编辑">✏️</button>
+                        <button class="fm-btn danger" @click.stop="deleteFamilyMember(m)" title="删除">✖️</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- 调整归属弹窗 -->
         <el-dialog v-model="moveDialog.visible" title="调整归属" width="92%" :style="{maxWidth:'420px'}" :close-on-click-modal="false">
           <p style="margin-bottom:12px;color:#5a3a47;">将 <b>{{ getIcon(moveDialog.type) }} {{ moveDialog.entity?.name }}</b> 移动到：</p>
@@ -948,6 +1050,36 @@
             <el-button type="primary" @click="saveItem" :loading="store.loading">确认</el-button>
           </template>
         </el-dialog>
+
+        <!-- 家人们成员弹窗 -->
+        <el-dialog v-model="fd.visible" :title="fd.isEdit?'编辑家人':'添加家人'" width="92%" :style="{maxWidth:'380px'}" :close-on-click-modal="false">
+          <el-form :model="fd.form" label-width="60px">
+            <el-form-item label="姓名" required><el-input v-model="fd.form.name" placeholder="姓名" /></el-form-item>
+            <el-form-item label="性别">
+              <el-radio-group v-model="fd.form.gender">
+                <el-radio label="male">👨 男性</el-radio>
+                <el-radio label="female">👩 女性</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="关系">
+              <el-select v-model="fd.form.relation" filterable allow-create default-first-option style="width:100%" placeholder="如：父亲 / 母亲 / 儿子 / 女儿">
+                <el-option label="父亲" value="父亲" />
+                <el-option label="母亲" value="母亲" />
+                <el-option label="儿子" value="儿子" />
+                <el-option label="女儿" value="女儿" />
+                <el-option label="兄弟" value="兄弟" />
+                <el-option label="姐妹" value="姐妹" />
+                <el-option label="祖父" value="祖父" />
+                <el-option label="祖母" value="祖母" />
+                <el-option label="外祖父" value="外祖父" />
+                <el-option label="外祖母" value="外祖母" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="头像"><image-upload v-model="fd.form.avatar" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="fd.form.notes" type="textarea" :rows="2" placeholder="生日、职业等" /></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="fd.visible=false">取消</el-button><el-button type="primary" @click="saveFamilyMember">确认</el-button></template>
+        </el-dialog>
       </div>
     `,
     setup() {
@@ -969,11 +1101,12 @@
       const manageDialog = reactive({ visible: false, type: 'category' });
       const moveDialog = reactive({ visible: false, entity: null, type: '', candidates: [], selectedParentId: '' });
       const clearDialog = reactive({ visible: false, confirmText: '' });
+      const fd = reactive({ visible: false, isEdit: false, editId: null, form: { name: '', gender: 'male', parentId: '', spouseId: '', relation: '', avatar: '', notes: '' } });
 
       window.addEventListener('resize', () => { isMobileView.value = isMobile(); });
 
       let syncTimer = null;
-      function startAutoSync() { stopAutoSync(); syncTimer = setInterval(() => { if (store.dirty) syncToGitHub(); }, 30000); }
+      function startAutoSync() { stopAutoSync(); syncTimer = setInterval(function() { if (store.dirty) syncToGitHub(); if (store.familyDirty) syncFamilyToGitHub(); }, 30000); }
       function stopAutoSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
       startAutoSync();
       window.addEventListener('beforeunload', (e) => {
@@ -1212,7 +1345,12 @@
         currentFeature.value = name;
         if (name === 'storage') {
           fetchData().then(() => { store.houses.forEach(h => expandedIds.add(h.id)); });
+        } else if (name === 'family') {
+          fetchFamilyData();
         }
+      }
+      function enterFamilyFeature() {
+        fetchFamilyData();
       }
 
       function showManageDialog(type) { manageDialog.type = type; manageDialog.visible = true; }
@@ -1355,7 +1493,58 @@
         if (clone) { markDirty(); ElementPlus.ElMessage.success('已复制 ' + entity.name); }
       }
 
-      // ===== Category / Tag / Type management =====
+      // ===== Family =====
+      function showFamilyAdd(parentId) {
+        fd.isEdit = false; fd.editId = null;
+        fd.form = { name: '', gender: 'male', parentId: parentId || '', spouseId: '', relation: '', avatar: '', notes: '' };
+        fd.visible = true;
+      }
+      function showFamilyEdit(member) {
+        fd.isEdit = true; fd.editId = member.id;
+        fd.form = { name: member.name, gender: member.gender, parentId: member.parentId || '', spouseId: member.spouseId || '', relation: member.relation || '', avatar: member.avatar || '', notes: member.notes || '' };
+        fd.visible = true;
+      }
+      function saveFamilyMember() {
+        if (!fd.form.name) { ElementPlus.ElMessage.warning('请输入姓名'); return; }
+        if (fd.isEdit) {
+          var m = store.familyMembers.find(function(x) { return x.id === fd.editId; });
+          if (m) { m.name = fd.form.name; m.gender = fd.form.gender; m.parentId = fd.form.parentId || ''; m.spouseId = fd.form.spouseId || ''; m.relation = fd.form.relation || ''; m.avatar = fd.form.avatar || ''; m.notes = fd.form.notes || ''; }
+        } else {
+          store.familyMembers.push({ id: genId(), name: fd.form.name, gender: fd.form.gender, parentId: fd.form.parentId || '', spouseId: fd.form.spouseId || '', relation: fd.form.relation || '', avatar: fd.form.avatar || '', notes: fd.form.notes || '' });
+        }
+        fd.visible = false; markFamilyDirty();
+      }
+      function deleteFamilyMember(member) {
+        ElementPlus.ElMessageBox.confirm('确定删除「' + member.name + '」及其关系吗？', '确认删除', { type: 'warning' }).then(function() {
+          removeFromArray(store.familyMembers, member.id);
+          // 清理其他成员中对此人的引用
+          store.familyMembers.forEach(function(m) {
+            if (m.parentId === member.id) m.parentId = '';
+            if (m.spouseId === member.id) m.spouseId = '';
+          });
+          markFamilyDirty();
+        }).catch(function() {});
+      }
+      function getFamilyById(id) { return store.familyMembers.find(function(m) { return m.id === id; }); }
+      function getSpouse(member) { return member.spouseId ? getFamilyById(member.spouseId) : null; }
+      function getChildren(member) { return store.familyMembers.filter(function(m) { return m.parentId === member.id; }); }
+      function getParents(member) { return member.parentId ? [getFamilyById(member.parentId)] : []; }
+      // 构建可视化族谱层级
+      function buildFamilyTree() {
+        var noParent = [], map = {};
+        store.familyMembers.forEach(function(m) {
+          map[m.id] = m;
+          if (!m.parentId) noParent.push(m);
+        });
+        function level(m, d) { m._level = d; getChildren(m).forEach(function(c) { level(c, d + 1); }); }
+        noParent.forEach(function(m) { level(m, 0); });
+        var maxLevel = 0;
+        store.familyMembers.forEach(function(m) { if (m._level > maxLevel) maxLevel = m._level; });
+        var levels = [];
+        for (var i = 0; i <= maxLevel; i++) levels.push([]);
+        store.familyMembers.forEach(function(m) { levels[m._level].push(m); });
+        return levels;
+      }
       function addCategory(name) { store.categories.push({ id: genId(), name }); markDirty(); }
       function updateCategory(item, name) { item.name = name; markDirty(); }
       function deleteCategory(item) { ElementPlus.ElMessageBox.confirm('确定删除类别「' + item.name + '」吗？', '确认删除', { type: 'warning' }).then(() => { removeFromArray(store.categories, item.id); markDirty(); }).catch(() => {}); }
@@ -1549,7 +1738,7 @@
       function logout() {
         stopAutoSync();
         localStorage.removeItem('xiaohua_xiaofeng_logged_in');
-        store.loggedIn = false; store.githubToken = ''; store.githubRepo = ''; store.houses = []; store.categories = []; store.tags = []; store.roomTypes = []; store.containerTypes = [];
+        store.loggedIn = false; store.githubToken = ''; store.githubRepo = ''; store.houses = []; store.categories = []; store.tags = []; store.roomTypes = []; store.containerTypes = []; store.familyMembers = [];
       }
 
       return {
@@ -1558,11 +1747,11 @@
         desktopTreeRef, mobileTreeRef, cardAreaRef,
         expandedIds, sidebarCollapsed,
         searchVisible, searchQuery, searchResults, showSearch, showMobileTree,
-        zoom, zoomPercent, compactMode, spacingClass, manageDialog, moveDialog, clearDialog,
+        zoom, zoomPercent, compactMode, spacingClass, manageDialog, moveDialog, clearDialog, fd,
         syncStatusText,
         treeData, allExpandedKeys,
         hd, rd, cd, bd, id2,
-        enterFeature, showManageDialog, toggleExpand, expandAll, toggleExpandAll,
+        enterFeature, enterFamilyFeature, showManageDialog, toggleExpand, expandAll, toggleExpandAll,
         toggleSearch, closeSearch, doSearch, navToSearchResult,
         zoomIn, zoomOut, zoomReset, toggleSpacing,
         allowTreeDrag, allowTreeDrop, handleTreeDrop,
@@ -1586,6 +1775,8 @@
         editEntity, editFromTree,
         deleteEntity, deleteFromTree,
         formatTime, logout, getEntityTypeName, getIcon,
+        showFamilyAdd, showFamilyEdit, saveFamilyMember, deleteFamilyMember,
+        getFamilyById, getSpouse, getChildren, getParents, buildFamilyTree,
       };
     },
   };
